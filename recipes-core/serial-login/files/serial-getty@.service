@@ -1,0 +1,12 @@
+[Unit]
+Description=Serial Getty on %I
+After=systemd-user-sessions.service
+Before=getty.target
+
+[Service]
+ExecStart=-/sbin/agetty --keep-baud 115200 %I $TERM
+Restart=always
+Type=idle
+
+[Install]
+WantedBy=getty.target
