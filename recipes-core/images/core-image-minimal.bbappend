@@ -6,8 +6,11 @@ IMAGE_INSTALL:append = " openssh openssh-sftp-server"
 # IMAGE_INSTALL:append = " busybox"
 IMAGE_INSTALL:append = " systemd"
 
+# Add firmware for various devices
+IMAGE_INSTALL:append = " linux-firmware"
+
 # Add WiFi support
-IMAGE_INSTALL:append = " wpa-supplicant wpa-config dhclient iw"
+IMAGE_INSTALL:append = " wpa-supplicant wpa-config dhcpcd iw"
 
 # Add Vim editor
 IMAGE_INSTALL:append = " vim"
