@@ -1,5 +1,5 @@
 #!/bin/bash
-IMAGE_PATH="$(ls ~/yocto/poky/build/tmp/deploy/images/raspberrypi4/core-image-base*.rootfs.wic.bz2 | tail -n 1)"
+IMAGE_PATH="$(ls ~/yocto/poky/build/tmp/deploy/images/raspberrypi4/core-image-full-cmdline*.rootfs.wic.bz2 | tail -n 1)"
 
 echo "Burning image from: 
 ${IMAGE_PATH}"

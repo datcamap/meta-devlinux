@@ -7,13 +7,11 @@ IMAGE_INSTALL:append = " openssh openssh-sftp-server"
 IMAGE_INSTALL:append = " systemd"
 
 # Add firmware for various devices
-# IMAGE_INSTALL:append = " linux-firmware"
+IMAGE_INSTALL:append = " linux-firmware"
 
 # Add WiFi support
-IMAGE_INSTALL:append = " wpa-supplicant wpa-config dhcpcd iw"
+IMAGE_INSTALL:append = " wpa-supplicant dhcpcd iw"
+IMAGE_INSTALL:append = " wpa-config"
 
 # Add Vim editor
 IMAGE_INSTALL:append = " vim"
-
-INHERIT += "extrausers"
-EXTRA_USERS_PARAMS = "groupadd netdev; "
