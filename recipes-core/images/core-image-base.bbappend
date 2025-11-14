@@ -14,6 +14,3 @@ IMAGE_INSTALL:append = " wpa-supplicant wpa-config dhcpcd iw"
 
 # Add Vim editor
 IMAGE_INSTALL:append = " vim"
-
-INHERIT += "extrausers"
-EXTRA_USERS_PARAMS = "groupadd netdev; "
