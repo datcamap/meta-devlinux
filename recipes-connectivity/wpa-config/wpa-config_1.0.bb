@@ -23,7 +23,7 @@ do_install() {
     install -m 644 ${WORKDIR}/wpa_supplicant.service ${D}${sysconfdir}/systemd/system/wpa_supplicant.service
 }
 
-SYSTEMD_SERVICE_${PN} = "wpa_supplicant.service"
-SYSTEMD_AUTO_ENABLE = "enable"
+SYSTEMD_SERVICE:${PN} = "wpa_supplicant.service"
+SYSTEMD_AUTO_ENABLE:${PN} = "enable"
 
 FILES_${PN} = "${sysconfdir}/wpa_supplicant ${sysconfdir}/systemd/system/wpa_supplicant.service"
