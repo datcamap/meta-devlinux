@@ -1,1 +1,0 @@
-ttyAMA0::respawn:/sbin/getty -L 115200 ttyAMA0 vt102
