@@ -1,13 +1,13 @@
 #!/bin/bash
-IMAGE_PATH="$(ls ~/yocto/poky/build/tmp/deploy/images/raspberrypi4/core-image-full-cmdline*.rootfs.wic.bz2 | tail -n 1)"
+IMAGE_PATH="$(ls ~/yocto/poky/build/tmp/deploy/images/raspberrypi4/core-image-base*.rootfs.wic.bz2 | tail -n 1)"
 
 echo "Burning image from: 
 ${IMAGE_PATH}"
 
-mkdir -p ~/yocto/poky/temporary
-rm -f ~/yocto/poky/temporary/temp.wic
+# mkdir -p ~/yocto/poky/temporary
+# rm -f ~/yocto/poky/temporary/temp.wic
 
-cp ${IMAGE_PATH} ~/yocto/poky/temporary/temp.wic.bz2
+# cp ${IMAGE_PATH} ~/yocto/poky/temporary/temp.wic.bz2
 sudo dd if=/dev/zero of=/dev/sdb bs=512 count=1
-bzcat ~/yocto/poky/temporary/temp.wic.bz2 | sudo dd of=/dev/sdb bs=4M status=progress
+bzcat ${IMAGE_PATH} | sudo dd of=/dev/sdb bs=4M status=progress
 sync

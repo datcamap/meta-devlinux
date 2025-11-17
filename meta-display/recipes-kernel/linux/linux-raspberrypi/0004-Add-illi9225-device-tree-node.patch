@@ -1,0 +1,239 @@
+From 4c2e9554818e08d00a798fb23e30583787c6da19 Mon Sep 17 00:00:00 2001
+From: datcamap <vipronline24h@gmail.com>
+Date: Mon, 3 Nov 2025 16:43:18 +0700
+Subject: [PATCH 4/4] Add illi9225 device tree node
+
+---
+ arch/arm/boot/dts/bcm2711-rpi-4-b.dts | 29 +++++++++----
+ drivers/nokia5110/nokia5110.c         | 59 ++++++++++++++++++---------
+ 2 files changed, 59 insertions(+), 29 deletions(-)
+
+diff --git a/arch/arm/boot/dts/bcm2711-rpi-4-b.dts b/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
+index 1f61f9c33bdc..de183f4aed89 100644
+--- a/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
++++ b/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
+@@ -336,23 +336,34 @@ &spi0 {
+ 	// 	spi-max-frequency = <125000000>;
+ 	// };
+ 
++	// spidev1: spidev@1{
++	// 	compatible = "spidev";
++	// 	reg = <1>;	/* CE1 */
++	// 	#address-cells = <1>;
++	// 	#size-cells = <0>;
++	// 	spi-max-frequency = <125000000>;
++	// };
++
+ 	status = "okay";
+ 
+ 	nokia5110: nokia5110@0 {
+ 		compatible = "nokia5110";
+ 		reg = <0>;	/* CE0 */
+-		spi-max-frequency = <2000000>;
+-		dc-gpios = <&gpio 25 GPIO_ACTIVE_HIGH>;
+-		reset-gpios = <&gpio 24 GPIO_ACTIVE_LOW>;
++		spi-max-frequency = <4000000>;
++		dc-gpios = <&gpio 27 GPIO_ACTIVE_HIGH>;
++		reset-gpios = <&gpio 22 GPIO_ACTIVE_HIGH>;
++		bklight-gpios = <&gpio 23 GPIO_ACTIVE_HIGH>;
+ 		status = "okay";
+ 	};
+ 
+-	spidev1: spidev@1{
+-		compatible = "spidev";
+-		reg = <1>;	/* CE1 */
+-		#address-cells = <1>;
+-		#size-cells = <0>;
+-		spi-max-frequency = <125000000>;
++	display@1{
++		compatible = "vot,v220hf01a-t", "ilitek,ili9225";
++		reg = <1>; /* CE1 */
++		spi-max-frequency = <12000000>;
++		rs-gpios = <&gpio 25 GPIO_ACTIVE_HIGH>;
++		reset-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;
++		rotation = <270>;
++		status = "okay";
+ 	};
+ };
+ 
+diff --git a/drivers/nokia5110/nokia5110.c b/drivers/nokia5110/nokia5110.c
+index e54b35aa1c55..b32bb3aeddcc 100644
+--- a/drivers/nokia5110/nokia5110.c
++++ b/drivers/nokia5110/nokia5110.c
+@@ -22,7 +22,7 @@
+ #define KBUFFER_CAP 256
+ #define NOKIA5110_FONT_SPACING 1
+ #define NOKIA5110_MAX_BANK 5
+-#define NOKIA5110_MAX_COLUMN 84
++#define NOKIA5110_MAX_COLUMN 83
+ 
+ /* Commands */
+ #define PCD8544_CMD_FUNCTION_SET    0x20
+@@ -47,6 +47,7 @@ typedef struct nokia5110_spi_device {
+     uint8_t font_size;
+     struct gpio_desc *dc_gpio;
+     struct gpio_desc *rst_gpio;
++    struct gpio_desc *bklight_gpio;
+     dev_t dev_num;
+     size_t kbuf_len;
+     char *kmalloc_ptr;
+@@ -160,7 +161,7 @@ void nokia5110_init_sequence(nokia5110_spi_device_t *);
+ static int nokia5110_send_cmd(nokia5110_spi_device_t *, uint8_t);
+ static int nokia5110_send_data(nokia5110_spi_device_t *, char*, size_t);
+ static int nokia5110_set_column_address(nokia5110_spi_device_t *, uint8_t, uint8_t);
+-void nokia5110_display_print_string(nokia5110_spi_device_t *, const char *, size_t);
++int nokia5110_display_print_string(nokia5110_spi_device_t *, const char *, size_t);
+ void nokia5110_display_fill_remaining(nokia5110_spi_device_t *, uint8_t);
+ void nokia5110_cleanup(nokia5110_spi_device_t *);
+ 
+@@ -178,6 +179,7 @@ static struct file_operations fops = {
+ static int nokia5110_probe(struct spi_device *spidev) {
+     nokia5110_spi_device_t *nokia5110;
+     char* test_str = "Hello, World!\n";
++    int i, a, b;
+ 
+     printk(KERN_INFO DEVICE_NAME ": Probing SPI device.\n");
+ 
+@@ -206,13 +208,17 @@ static int nokia5110_probe(struct spi_device *spidev) {
+          goto device_create_fail;
+     }
+ 
+-    nokia5110->rst_gpio = devm_gpiod_get(&spidev->dev, "reset", GPIOD_OUT_LOW);
++    nokia5110->rst_gpio = devm_gpiod_get(&spidev->dev, "reset", GPIOD_OUT_HIGH);
+     nokia5110->dc_gpio = devm_gpiod_get(&spidev->dev, "dc", GPIOD_OUT_LOW);
+-    if (IS_ERR(nokia5110->rst_gpio) || IS_ERR(nokia5110->dc_gpio)) {
+-        printk(KERN_ERR DEVICE_NAME ": Failed to get DC and RESET gpio.\n");
++    nokia5110->bklight_gpio = devm_gpiod_get(&spidev->dev, "bklight", GPIOD_OUT_HIGH);
++    if (IS_ERR(nokia5110->rst_gpio) || IS_ERR(nokia5110->dc_gpio) || IS_ERR(nokia5110->bklight_gpio)) {
++        printk(KERN_ERR DEVICE_NAME ": Failed to get gpios.\n");
+         goto device_create_fail;
+     }
++    gpiod_set_value(nokia5110->rst_gpio, 0);
++    for (i = 0; i < 1000000000; i++) {a+=b;};  // Delay 600ms
+     gpiod_set_value(nokia5110->rst_gpio, 1);
++    for (i = 0; i < 1000; i++) {a+=b;};  // Delay 600ns
+ 
+     nokia5110->kbuf_len = 0;
+     nokia5110->spidev = spidev;
+@@ -239,6 +245,8 @@ static int nokia5110_probe(struct spi_device *spidev) {
+ 
+ static int nokia5110_remove(struct spi_device *spidev) {
+     nokia5110_spi_device_t *nokia5110 = spi_get_drvdata(spidev);
++    printk(KERN_INFO DEVICE_NAME ": Removing SPI device.\n");
++
+     if (!nokia5110) {
+         printk(KERN_INFO DEVICE_NAME ": Error geting driver data.\n");
+         return -EINVAL;
+@@ -254,10 +262,12 @@ static int nokia5110_remove(struct spi_device *spidev) {
+ }
+ 
+ void nokia5110_init_sequence(nokia5110_spi_device_t *nokia5110) {
+-    nokia5110_send_cmd(nokia5110, 0x21); // extended instruction set
+-	nokia5110_send_cmd(nokia5110, 0xB1); // set Vop
+-	nokia5110_send_cmd(nokia5110, 0x04); // temperature coeff
+-	nokia5110_send_cmd(nokia5110, 0x14); // bias
++    nokia5110_send_cmd(nokia5110, 0x21); // Extended instruction set
++    nokia5110_send_cmd(nokia5110, 0xE2); // Software reset
++    nokia5110_send_cmd(nokia5110, 0x13); // Bias system 1:48
++	nokia5110_send_cmd(nokia5110, 0xC2); // Vop (contrast)
++	nokia5110_send_cmd(nokia5110, 0x06); // Temperature coeff
++
+ 	nokia5110_send_cmd(nokia5110, 0x20); // basic instruction set
+ 	nokia5110_send_cmd(nokia5110, 0x0C); // normal display mode
+ }
+@@ -274,6 +284,7 @@ static int nokia5110_send_data(nokia5110_spi_device_t *nokia5110, char *data_buf
+ 
+ static int nokia5110_set_column_address(nokia5110_spi_device_t *nokia5110, uint8_t x, uint8_t y) {
+     if (x > NOKIA5110_MAX_COLUMN || y > NOKIA5110_MAX_BANK) {
++        printk(KERN_ERR DEVICE_NAME ": Invalid column (%d) or bank (%d) address.\n", x, y);
+         return -1;
+     }
+     nokia5110_send_cmd(nokia5110, PCD8544_CMD_SET_X_ADDR | x);
+@@ -281,7 +292,7 @@ static int nokia5110_set_column_address(nokia5110_spi_device_t *nokia5110, uint8
+     return 0;
+ }
+ 
+-void nokia5110_display_print_string(nokia5110_spi_device_t *nokia5110, const char *str, size_t len) {
++int nokia5110_display_print_string(nokia5110_spi_device_t *nokia5110, const char *str, size_t len) {
+     char *str_temp;
+     char *kbuffer;
+     size_t i, j;
+@@ -290,7 +301,7 @@ void nokia5110_display_print_string(nokia5110_spi_device_t *nokia5110, const cha
+     str_temp = (char *)kmalloc(len + 1, GFP_KERNEL);
+     if (!str_temp) {
+         printk(KERN_ERR DEVICE_NAME ": Failed to allocate memory for string copy.\n");
+-        return;
++        return -1;
+     }
+     strncpy(str_temp, str, len);
+     str_temp[len] = '\0';
+@@ -298,7 +309,7 @@ void nokia5110_display_print_string(nokia5110_spi_device_t *nokia5110, const cha
+     kbuffer = (char *)kmalloc(nokia5110->font_size * len, GFP_KERNEL);
+     if (!kbuffer) {
+         printk(KERN_ERR DEVICE_NAME ": Failed to allocate memory for string rendering.\n");
+-        return;
++        return -1;
+     }
+ 
+     for (i = 0; i < len; i++) {
+@@ -309,7 +320,7 @@ void nokia5110_display_print_string(nokia5110_spi_device_t *nokia5110, const cha
+             if (nokia5110->current_line > NOKIA5110_MAX_BANK) {
+                 nokia5110->current_line = 0;
+             }
+-            nokia5110_set_column_address(nokia5110, nokia5110->current_line, nokia5110->cursor_pos);
++            nokia5110_set_column_address(nokia5110, nokia5110->cursor_pos, nokia5110->current_line);
+             continue;
+         } else if (str_temp[i] < 0x20 || str_temp[i] > 0x7E) {
+             str_temp[i] = '?'; // Replace unsupported characters with '?'
+@@ -325,7 +336,12 @@ void nokia5110_display_print_string(nokia5110_spi_device_t *nokia5110, const cha
+             kbuffer[kbuf_index++] = 0x00; // Add spacing between characters
+         }
+ 
+-        nokia5110_send_data(nokia5110, kbuffer, nokia5110->font_size);
++        if(nokia5110_send_data(nokia5110, kbuffer, nokia5110->font_size)) {
++            printk(KERN_ERR DEVICE_NAME ": Failed to send data to display.\n");
++            kfree(str_temp);
++            kfree(kbuffer);
++            return -1;
++        }
+         kbuf_index = 0;
+         nokia5110->cursor_pos += nokia5110->font_size;
+ 
+@@ -338,12 +354,16 @@ void nokia5110_display_print_string(nokia5110_spi_device_t *nokia5110, const cha
+                 nokia5110->current_line = 0;
+             }
+         }
+-        nokia5110_set_column_address(nokia5110, nokia5110->current_line, nokia5110->cursor_pos);
++        nokia5110_set_column_address(nokia5110, nokia5110->cursor_pos, nokia5110->current_line);
+     }
++
++    kfree(str_temp);
++    kfree(kbuffer);
++    return 0;
+ }
+ 
+ void nokia5110_display_fill_remaining(nokia5110_spi_device_t *nokia5110, uint8_t pos) {
+-    uint8_t remaining_bytes = NOKIA5110_MAX_COLUMN - pos;
++    uint8_t remaining_bytes = NOKIA5110_MAX_COLUMN - pos + 1;
+     char *clear_buf;
+ 
+     clear_buf = (char *)kmalloc(remaining_bytes, GFP_KERNEL);
+@@ -360,12 +380,11 @@ void nokia5110_display_fill_remaining(nokia5110_spi_device_t *nokia5110, uint8_t
+ }
+ 
+ void nokia5110_cleanup(nokia5110_spi_device_t *nokia5110) {
+-    int line;
+-
+-    for (line = 0; line <= NOKIA5110_MAX_BANK; line++) {
+-        nokia5110_set_column_address(nokia5110, line, 0);
++    for (nokia5110->current_line = 0; nokia5110->current_line <= NOKIA5110_MAX_BANK; nokia5110->current_line++) {
++        nokia5110_set_column_address(nokia5110, 0, nokia5110->current_line);
+         nokia5110_display_fill_remaining(nokia5110, 0);
+     }
++    nokia5110->current_line = 0;
+     nokia5110_set_column_address(nokia5110, 0, 0);
+ }
+ 
+-- 
+2.34.1
+

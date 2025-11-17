@@ -1,0 +1,1107 @@
+From 56287f1b132ab94f6512688e871e6f5a73207d1c Mon Sep 17 00:00:00 2001
+From: datcamap <vipronline24h@gmail.com>
+Date: Tue, 28 Oct 2025 15:00:19 +0700
+Subject: [PATCH 3/4] Fix nokia5110 driver
+
+---
+ arch/arm/boot/dts/bcm2711-rpi-4-b.dts |  29 +-
+ arch/arm/configs/bcm2711_defconfig    |   3 +
+ drivers/Kconfig                       |   4 +
+ drivers/Makefile                      |   2 +
+ drivers/nokia5110/Kconfig             |  10 +
+ drivers/nokia5110/Makefile            |   1 +
+ drivers/nokia5110/nokia5110.c         | 454 ++++++++++++++++++++++++
+ drivers/ssd1306/Kconfig               |  10 +
+ drivers/ssd1306/Makefile              |   3 +
+ drivers/ssd1306/ssd1306.c             | 484 ++++++++++++++++++++++++++
+ 10 files changed, 995 insertions(+), 5 deletions(-)
+ create mode 100644 drivers/nokia5110/Kconfig
+ create mode 100644 drivers/nokia5110/Makefile
+ create mode 100644 drivers/nokia5110/nokia5110.c
+ create mode 100644 drivers/ssd1306/Kconfig
+ create mode 100644 drivers/ssd1306/Makefile
+ create mode 100644 drivers/ssd1306/ssd1306.c
+
+diff --git a/arch/arm/boot/dts/bcm2711-rpi-4-b.dts b/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
+index 8c0ab39beea1..1f61f9c33bdc 100644
+--- a/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
++++ b/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
+@@ -328,12 +328,23 @@ &spi0 {
+ 	pinctrl-0 = <&spi0_pins &spi0_cs_pins>;
+ 	cs-gpios = <&gpio 8 1>, <&gpio 7 1>;
+ 
+-	spidev0: spidev@0{
+-		compatible = "spidev";
++	// spidev0: spidev@0{
++	// 	compatible = "spidev";
++	// 	reg = <0>;	/* CE0 */
++	// 	#address-cells = <1>;
++	// 	#size-cells = <0>;
++	// 	spi-max-frequency = <125000000>;
++	// };
++
++	status = "okay";
++
++	nokia5110: nokia5110@0 {
++		compatible = "nokia5110";
+ 		reg = <0>;	/* CE0 */
+-		#address-cells = <1>;
+-		#size-cells = <0>;
+-		spi-max-frequency = <125000000>;
++		spi-max-frequency = <2000000>;
++		dc-gpios = <&gpio 25 GPIO_ACTIVE_HIGH>;
++		reset-gpios = <&gpio 24 GPIO_ACTIVE_LOW>;
++		status = "okay";
+ 	};
+ 
+ 	spidev1: spidev@1{
+@@ -495,6 +506,14 @@ &i2c1 {
+ 	pinctrl-names = "default";
+ 	pinctrl-0 = <&i2c1_pins>;
+ 	clock-frequency = <100000>;
++	
++	status = "okay";
++
++	ssd1306@3c {
++		compatible = "solomon,ssd1306";
++		reg = <0x3c>;
++		status = "okay";
++	};
+ };
+ 
+ &i2s {
+diff --git a/arch/arm/configs/bcm2711_defconfig b/arch/arm/configs/bcm2711_defconfig
+index bdf66f3e268e..11eb599f84a3 100644
+--- a/arch/arm/configs/bcm2711_defconfig
++++ b/arch/arm/configs/bcm2711_defconfig
+@@ -1598,3 +1598,6 @@ CONFIG_IRQSOFF_TRACER=y
+ CONFIG_SCHED_TRACER=y
+ CONFIG_BLK_DEV_IO_TRACE=y
+ # CONFIG_UPROBE_EVENTS is not set
++# MY_CONFIG
++CONFIG_SSD1306_I2C=m
++CONFIG_NOKIA5110_SPI=m
+diff --git a/drivers/Kconfig b/drivers/Kconfig
+index 0d399ddaa185..651d697835a3 100644
+--- a/drivers/Kconfig
++++ b/drivers/Kconfig
+@@ -236,4 +236,8 @@ source "drivers/interconnect/Kconfig"
+ source "drivers/counter/Kconfig"
+ 
+ source "drivers/most/Kconfig"
++
++source "drivers/ssd1306/Kconfig"
++
++source "drivers/nokia5110/Kconfig"
+ endmenu
+diff --git a/drivers/Makefile b/drivers/Makefile
+index a110338c860c..e58b736543e5 100644
+--- a/drivers/Makefile
++++ b/drivers/Makefile
+@@ -187,3 +187,5 @@ obj-$(CONFIG_GNSS)		+= gnss/
+ obj-$(CONFIG_INTERCONNECT)	+= interconnect/
+ obj-$(CONFIG_COUNTER)		+= counter/
+ obj-$(CONFIG_MOST)		+= most/
++obj-$(CONFIG_SSD1306_I2C)		+= ssd1306/
++obj-$(CONFIG_NOKIA5110_SPI)		+= nokia5110/
+diff --git a/drivers/nokia5110/Kconfig b/drivers/nokia5110/Kconfig
+new file mode 100644
+index 000000000000..5fdaafe036ea
+--- /dev/null
++++ b/drivers/nokia5110/Kconfig
+@@ -0,0 +1,10 @@
++# SPDX-License-Identifier: GPL-2.0-only
++
++config NOKIA5110_SPI
++	bool "Nokia 5110 SPI LCD support"
++	depends on SPI
++	default y
++	help
++	  Say Y to include support for Nokia 5110/PCD8544 SPI-driven LCD displays
++	  directly in the kernel image. Enable this when the display must be
++	  available before loadable modules can be initialized.
+diff --git a/drivers/nokia5110/Makefile b/drivers/nokia5110/Makefile
+new file mode 100644
+index 000000000000..7fe2b17b4364
+--- /dev/null
++++ b/drivers/nokia5110/Makefile
+@@ -0,0 +1 @@
++obj-$(CONFIG_NOKIA5110_SPI) += nokia5110.o
+diff --git a/drivers/nokia5110/nokia5110.c b/drivers/nokia5110/nokia5110.c
+new file mode 100644
+index 000000000000..e54b35aa1c55
+--- /dev/null
++++ b/drivers/nokia5110/nokia5110.c
+@@ -0,0 +1,454 @@
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/init.h>
++#include <linux/fs.h>
++#include <linux/cdev.h>
++#include <linux/device.h>
++#include <linux/spi/spi.h>
++#include <linux/string.h>
++#include <linux/kernel.h>
++#include <linux/kdev_t.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/types.h>
++#include <linux/slab.h>
++#include <linux/uaccess.h>
++#include <linux/err.h>
++#include <linux/device/class.h>
++
++#define CLASS_NAME "my_nokia_lcd_class"
++#define DEVICE_NAME "nokia5110"
++#define MAX_MINOR 256
++#define KBUFFER_CAP 256
++#define NOKIA5110_FONT_SPACING 1
++#define NOKIA5110_MAX_BANK 5
++#define NOKIA5110_MAX_COLUMN 84
++
++/* Commands */
++#define PCD8544_CMD_FUNCTION_SET    0x20
++#define PCD8544_CMD_EXTENDED        0x21
++#define PCD8544_CMD_DISPLAY_CONTROL 0x08
++#define PCD8544_CMD_SET_Y_ADDR      0x40
++#define PCD8544_CMD_SET_X_ADDR      0x80
++#define PCD8544_CMD_VOP             0xB0
++#define PCD8544_CMD_TEMP_COEFF      0x04
++#define PCD8544_CMD_BIAS            0x10
++
++struct nokia5110_module_params {
++    struct class *my_class;
++    dev_t major;
++    dev_t minor;
++} nokia5110_module;
++
++typedef struct nokia5110_spi_device {
++    struct spi_device *spidev;
++    uint8_t current_line;
++    uint8_t cursor_pos;
++    uint8_t font_size;
++    struct gpio_desc *dc_gpio;
++    struct gpio_desc *rst_gpio;
++    dev_t dev_num;
++    size_t kbuf_len;
++    char *kmalloc_ptr;
++    struct cdev my_cdev;
++    struct device *my_device;
++} nokia5110_spi_device_t;
++
++// 5x8 ASCII font, columns are bytes (LSB = top pixel)
++// printable ASCII 0x20..0x7E (95 chars), index = ch - 32
++static const uint8_t font5x8[95][5] = {
++  {0x00,0x00,0x00,0x00,0x00}, // 0x20 ' '
++  {0x00,0x00,0x5F,0x00,0x00}, // 0x21 '!'
++  {0x00,0x07,0x00,0x07,0x00}, // 0x22 '"'
++  {0x14,0x7F,0x14,0x7F,0x14}, // 0x23 '#'
++  {0x24,0x2A,0x7F,0x2A,0x12}, // 0x24 '$'
++  {0x23,0x13,0x08,0x64,0x62}, // 0x25 '%'
++  {0x36,0x49,0x55,0x22,0x50}, // 0x26 '&'
++  {0x00,0x05,0x03,0x00,0x00}, // 0x27 '''
++  {0x00,0x1C,0x22,0x41,0x00}, // 0x28 '('
++  {0x00,0x41,0x22,0x1C,0x00}, // 0x29 ')'
++  {0x14,0x08,0x3E,0x08,0x14}, // 0x2A '*'
++  {0x08,0x08,0x3E,0x08,0x08}, // 0x2B '+'
++  {0x00,0x50,0x30,0x00,0x00}, // 0x2C ','
++  {0x08,0x08,0x08,0x08,0x08}, // 0x2D '-'
++  {0x00,0x60,0x60,0x00,0x00}, // 0x2E '.'
++  {0x20,0x10,0x08,0x04,0x02}, // 0x2F '/'
++  {0x3E,0x51,0x49,0x45,0x3E}, // 0x30 '0'
++  {0x00,0x42,0x7F,0x40,0x00}, // 0x31 '1'
++  {0x42,0x61,0x51,0x49,0x46}, // 0x32 '2'
++  {0x21,0x41,0x45,0x4B,0x31}, // 0x33 '3'
++  {0x18,0x14,0x12,0x7F,0x10}, // 0x34 '4'
++  {0x27,0x45,0x45,0x45,0x39}, // 0x35 '5'
++  {0x3C,0x4A,0x49,0x49,0x30}, // 0x36 '6'
++  {0x01,0x71,0x09,0x05,0x03}, // 0x37 '7'
++  {0x36,0x49,0x49,0x49,0x36}, // 0x38 '8'
++  {0x06,0x49,0x49,0x29,0x1E}, // 0x39 '9'
++  {0x00,0x36,0x36,0x00,0x00}, // 0x3A ':'
++  {0x00,0x56,0x36,0x00,0x00}, // 0x3B ';'
++  {0x08,0x14,0x22,0x41,0x00}, // 0x3C '<'
++  {0x14,0x14,0x14,0x14,0x14}, // 0x3D '='
++  {0x00,0x41,0x22,0x14,0x08}, // 0x3E '>'
++  {0x02,0x01,0x51,0x09,0x06}, // 0x3F '?'
++  {0x32,0x49,0x79,0x41,0x3E}, // 0x40 '@'
++  {0x7E,0x11,0x11,0x11,0x7E}, // 0x41 'A'
++  {0x7F,0x49,0x49,0x49,0x36}, // 0x42 'B'
++  {0x3E,0x41,0x41,0x41,0x22}, // 0x43 'C'
++  {0x7F,0x41,0x41,0x22,0x1C}, // 0x44 'D'
++  {0x7F,0x49,0x49,0x49,0x41}, // 0x45 'E'
++  {0x7F,0x09,0x09,0x09,0x01}, // 0x46 'F'
++  {0x3E,0x41,0x49,0x49,0x7A}, // 0x47 'G'
++  {0x7F,0x08,0x08,0x08,0x7F}, // 0x48 'H'
++  {0x00,0x41,0x7F,0x41,0x00}, // 0x49 'I'
++  {0x20,0x40,0x41,0x3F,0x01}, // 0x4A 'J'
++  {0x7F,0x08,0x14,0x22,0x41}, // 0x4B 'K'
++  {0x7F,0x40,0x40,0x40,0x40}, // 0x4C 'L'
++  {0x7F,0x02,0x0C,0x02,0x7F}, // 0x4D 'M'
++  {0x7F,0x04,0x08,0x10,0x7F}, // 0x4E 'N'
++  {0x3E,0x41,0x41,0x41,0x3E}, // 0x4F 'O'
++  {0x7F,0x09,0x09,0x09,0x06}, // 0x50 'P'
++  {0x3E,0x41,0x51,0x21,0x5E}, // 0x51 'Q'
++  {0x7F,0x09,0x19,0x29,0x46}, // 0x52 'R'
++  {0x46,0x49,0x49,0x49,0x31}, // 0x53 'S'
++  {0x01,0x01,0x7F,0x01,0x01}, // 0x54 'T'
++  {0x3F,0x40,0x40,0x40,0x3F}, // 0x55 'U'
++  {0x1F,0x20,0x40,0x20,0x1F}, // 0x56 'V'
++  {0x7F,0x20,0x18,0x20,0x7F}, // 0x57 'W'
++  {0x63,0x14,0x08,0x14,0x63}, // 0x58 'X'
++  {0x07,0x08,0x70,0x08,0x07}, // 0x59 'Y'
++  {0x61,0x51,0x49,0x45,0x43}, // 0x5A 'Z'
++  {0x00,0x7F,0x41,0x41,0x00}, // 0x5B '['
++  {0x02,0x04,0x08,0x10,0x20}, // 0x5C '\'
++  {0x00,0x41,0x41,0x7F,0x00}, // 0x5D ']'
++  {0x04,0x02,0x01,0x02,0x04}, // 0x5E '^'
++  {0x40,0x40,0x40,0x40,0x40}, // 0x5F '_'
++  {0x00,0x01,0x02,0x04,0x00}, // 0x60 '`'
++  {0x20,0x54,0x54,0x54,0x78}, // 0x61 'a'
++  {0x7F,0x48,0x44,0x44,0x38}, // 0x62 'b'
++  {0x38,0x44,0x44,0x44,0x20}, // 0x63 'c'
++  {0x38,0x44,0x44,0x48,0x7F}, // 0x64 'd'
++  {0x38,0x54,0x54,0x54,0x18}, // 0x65 'e'
++  {0x08,0x7E,0x09,0x01,0x02}, // 0x66 'f'
++  {0x0C,0x52,0x52,0x52,0x3E}, // 0x67 'g'
++  {0x7F,0x08,0x04,0x04,0x78}, // 0x68 'h'
++  {0x00,0x44,0x7D,0x40,0x00}, // 0x69 'i'
++  {0x20,0x40,0x44,0x3D,0x00}, // 0x6A 'j'
++  {0x7F,0x10,0x28,0x44,0x00}, // 0x6B 'k'
++  {0x00,0x41,0x7F,0x40,0x00}, // 0x6C 'l'
++  {0x7C,0x04,0x18,0x04,0x78}, // 0x6D 'm'
++  {0x7C,0x08,0x04,0x04,0x78}, // 0x6E 'n'
++  {0x38,0x44,0x44,0x44,0x38}, // 0x6F 'o'
++  {0x7C,0x14,0x14,0x14,0x08}, // 0x70 'p'
++  {0x08,0x14,0x14,0x14,0x7C}, // 0x71 'q'
++  {0x7C,0x08,0x04,0x04,0x08}, // 0x72 'r'
++  {0x48,0x54,0x54,0x54,0x20}, // 0x73 's'
++  {0x04,0x3F,0x44,0x40,0x20}, // 0x74 't'
++  {0x3C,0x40,0x40,0x20,0x7C}, // 0x75 'u'
++  {0x1C,0x20,0x40,0x20,0x1C}, // 0x76 'v'
++  {0x3C,0x40,0x30,0x40,0x3C}, // 0x77 'w'
++  {0x44,0x28,0x10,0x28,0x44}, // 0x78 'x'
++  {0x0C,0x50,0x50,0x50,0x3C}, // 0x79 'y'
++  {0x44,0x64,0x54,0x4C,0x44}, // 0x7A 'z'
++  {0x00,0x08,0x36,0x41,0x00}, // 0x7B '{'
++  {0x00,0x00,0x7F,0x00,0x00}, // 0x7C '|'
++  {0x00,0x41,0x36,0x08,0x00}, // 0x7D '}'
++  {0x08,0x08,0x2A,0x1C,0x08}  // 0x7E '~'
++};
++
++static int nokia5110_probe(struct spi_device *);
++static int nokia5110_remove(struct spi_device *);
++void nokia5110_init_sequence(nokia5110_spi_device_t *);
++static int nokia5110_send_cmd(nokia5110_spi_device_t *, uint8_t);
++static int nokia5110_send_data(nokia5110_spi_device_t *, char*, size_t);
++static int nokia5110_set_column_address(nokia5110_spi_device_t *, uint8_t, uint8_t);
++void nokia5110_display_print_string(nokia5110_spi_device_t *, const char *, size_t);
++void nokia5110_display_fill_remaining(nokia5110_spi_device_t *, uint8_t);
++void nokia5110_cleanup(nokia5110_spi_device_t *);
++
++static int nokia5110_open(struct inode *, struct file *);
++static int nokia5110_release(struct inode *, struct file *);
++static ssize_t nokia5110_write(struct file *, const char __user *, size_t, loff_t *);
++
++static struct file_operations fops = {
++    .owner = THIS_MODULE,
++    .open = nokia5110_open,
++    .release = nokia5110_release,
++    .write = nokia5110_write,
++};
++
++static int nokia5110_probe(struct spi_device *spidev) {
++    nokia5110_spi_device_t *nokia5110;
++    char* test_str = "Hello, World!\n";
++
++    printk(KERN_INFO DEVICE_NAME ": Probing SPI device.\n");
++
++    nokia5110 = (nokia5110_spi_device_t *)kmalloc(sizeof(nokia5110_spi_device_t), GFP_KERNEL);
++    if (!nokia5110) {
++        printk(KERN_ERR DEVICE_NAME ": Cannot allocate kernel.\n");
++        return -ENOMEM;
++    }
++
++    nokia5110->kmalloc_ptr = (char *)kmalloc(KBUFFER_CAP, GFP_KERNEL);
++    if (nokia5110->kmalloc_ptr == NULL) {
++        printk(KERN_ERR DEVICE_NAME ": Cannot allocate buffer.\n");
++        goto nokia5110_fail;
++    }
++
++    cdev_init(&nokia5110->my_cdev, &fops);
++    nokia5110->dev_num = MKDEV(MAJOR(nokia5110_module.major), nokia5110_module.minor);
++    if (cdev_add(&nokia5110->my_cdev, nokia5110->dev_num, 1)) {
++        printk(KERN_ERR DEVICE_NAME ": Failed to add device.\n");
++        goto cdev_add_fail;
++    }
++    nokia5110_module.minor++;
++
++    if (device_create(nokia5110_module.my_class, NULL, nokia5110->dev_num, NULL, "%s%d", DEVICE_NAME, MINOR(nokia5110->dev_num)) == NULL) {
++         printk(KERN_ERR DEVICE_NAME ": Cannot create device.\n");
++         goto device_create_fail;
++    }
++
++    nokia5110->rst_gpio = devm_gpiod_get(&spidev->dev, "reset", GPIOD_OUT_LOW);
++    nokia5110->dc_gpio = devm_gpiod_get(&spidev->dev, "dc", GPIOD_OUT_LOW);
++    if (IS_ERR(nokia5110->rst_gpio) || IS_ERR(nokia5110->dc_gpio)) {
++        printk(KERN_ERR DEVICE_NAME ": Failed to get DC and RESET gpio.\n");
++        goto device_create_fail;
++    }
++    gpiod_set_value(nokia5110->rst_gpio, 1);
++
++    nokia5110->kbuf_len = 0;
++    nokia5110->spidev = spidev;
++    nokia5110->current_line = 0;
++    nokia5110->cursor_pos = 0;
++    nokia5110->font_size = 5 + NOKIA5110_FONT_SPACING;
++
++    spi_set_drvdata(spidev, nokia5110);
++    nokia5110_init_sequence(nokia5110);
++    nokia5110_cleanup(nokia5110);
++    nokia5110_display_print_string(nokia5110, test_str, sizeof(test_str));
++
++    printk(KERN_INFO DEVICE_NAME ": SPI device is detected.\n");
++    return 0;
++
++    device_create_fail:
++    cdev_del(&nokia5110->my_cdev);
++    cdev_add_fail:
++    kfree(nokia5110->kmalloc_ptr);
++    nokia5110_fail:
++    kfree(nokia5110->kmalloc_ptr);
++    return -1;
++}
++
++static int nokia5110_remove(struct spi_device *spidev) {
++    nokia5110_spi_device_t *nokia5110 = spi_get_drvdata(spidev);
++    if (!nokia5110) {
++        printk(KERN_INFO DEVICE_NAME ": Error geting driver data.\n");
++        return -EINVAL;
++    }
++
++    device_destroy(nokia5110_module.my_class, nokia5110->dev_num);
++    cdev_del(&nokia5110->my_cdev);
++    kfree(nokia5110->kmalloc_ptr);
++    kfree(nokia5110);
++
++    printk(KERN_INFO DEVICE_NAME ": I2C device is removed.\n");
++    return 0;
++}
++
++void nokia5110_init_sequence(nokia5110_spi_device_t *nokia5110) {
++    nokia5110_send_cmd(nokia5110, 0x21); // extended instruction set
++	nokia5110_send_cmd(nokia5110, 0xB1); // set Vop
++	nokia5110_send_cmd(nokia5110, 0x04); // temperature coeff
++	nokia5110_send_cmd(nokia5110, 0x14); // bias
++	nokia5110_send_cmd(nokia5110, 0x20); // basic instruction set
++	nokia5110_send_cmd(nokia5110, 0x0C); // normal display mode
++}
++
++static int nokia5110_send_cmd(nokia5110_spi_device_t *nokia5110, uint8_t command) {
++    gpiod_set_value(nokia5110->dc_gpio, 0);
++    return spi_write(nokia5110->spidev, &command, 1);
++}
++
++static int nokia5110_send_data(nokia5110_spi_device_t *nokia5110, char *data_buf, size_t buf_len) {
++    gpiod_set_value(nokia5110->dc_gpio, 1);
++	return spi_write(nokia5110->spidev, data_buf, buf_len);
++}
++
++static int nokia5110_set_column_address(nokia5110_spi_device_t *nokia5110, uint8_t x, uint8_t y) {
++    if (x > NOKIA5110_MAX_COLUMN || y > NOKIA5110_MAX_BANK) {
++        return -1;
++    }
++    nokia5110_send_cmd(nokia5110, PCD8544_CMD_SET_X_ADDR | x);
++    nokia5110_send_cmd(nokia5110, PCD8544_CMD_SET_Y_ADDR | y);
++    return 0;
++}
++
++void nokia5110_display_print_string(nokia5110_spi_device_t *nokia5110, const char *str, size_t len) {
++    char *str_temp;
++    char *kbuffer;
++    size_t i, j;
++    uint16_t kbuf_index = 0;
++
++    str_temp = (char *)kmalloc(len + 1, GFP_KERNEL);
++    if (!str_temp) {
++        printk(KERN_ERR DEVICE_NAME ": Failed to allocate memory for string copy.\n");
++        return;
++    }
++    strncpy(str_temp, str, len);
++    str_temp[len] = '\0';
++
++    kbuffer = (char *)kmalloc(nokia5110->font_size * len, GFP_KERNEL);
++    if (!kbuffer) {
++        printk(KERN_ERR DEVICE_NAME ": Failed to allocate memory for string rendering.\n");
++        return;
++    }
++
++    for (i = 0; i < len; i++) {
++        if (str_temp[i] == '\n') {
++            nokia5110_display_fill_remaining(nokia5110, nokia5110->cursor_pos);
++            nokia5110->current_line++;
++            nokia5110->cursor_pos = 0;
++            if (nokia5110->current_line > NOKIA5110_MAX_BANK) {
++                nokia5110->current_line = 0;
++            }
++            nokia5110_set_column_address(nokia5110, nokia5110->current_line, nokia5110->cursor_pos);
++            continue;
++        } else if (str_temp[i] < 0x20 || str_temp[i] > 0x7E) {
++            str_temp[i] = '?'; // Replace unsupported characters with '?'
++        }
++
++        // Render characters to kbuffer
++        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][0];
++        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][1];
++        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][2];
++        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][3];
++        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][4];
++        for (j = 0; j < NOKIA5110_FONT_SPACING; j++) {
++            kbuffer[kbuf_index++] = 0x00; // Add spacing between characters
++        }
++
++        nokia5110_send_data(nokia5110, kbuffer, nokia5110->font_size);
++        kbuf_index = 0;
++        nokia5110->cursor_pos += nokia5110->font_size;
++
++        // Prepare for next character
++        if (nokia5110->cursor_pos + nokia5110->font_size > NOKIA5110_MAX_COLUMN) {
++            nokia5110_display_fill_remaining(nokia5110, nokia5110->cursor_pos);
++            nokia5110->current_line++;
++            nokia5110->cursor_pos = 0;
++            if (nokia5110->current_line > NOKIA5110_MAX_BANK) {
++                nokia5110->current_line = 0;
++            }
++        }
++        nokia5110_set_column_address(nokia5110, nokia5110->current_line, nokia5110->cursor_pos);
++    }
++}
++
++void nokia5110_display_fill_remaining(nokia5110_spi_device_t *nokia5110, uint8_t pos) {
++    uint8_t remaining_bytes = NOKIA5110_MAX_COLUMN - pos;
++    char *clear_buf;
++
++    clear_buf = (char *)kmalloc(remaining_bytes, GFP_KERNEL);
++    if (!clear_buf) {
++        printk(KERN_ERR DEVICE_NAME ": Failed to allocate memory for clearing display.\n");
++        return;
++    }
++    
++    memset(clear_buf, 0x00, remaining_bytes);
++    printk(KERN_INFO DEVICE_NAME ": Filling remaining %d bytes on line %d from position %d\n", remaining_bytes, nokia5110->current_line, pos);
++
++    nokia5110_send_data(nokia5110, clear_buf, remaining_bytes);
++    kfree(clear_buf);
++}
++
++void nokia5110_cleanup(nokia5110_spi_device_t *nokia5110) {
++    int line;
++
++    for (line = 0; line <= NOKIA5110_MAX_BANK; line++) {
++        nokia5110_set_column_address(nokia5110, line, 0);
++        nokia5110_display_fill_remaining(nokia5110, 0);
++    }
++    nokia5110_set_column_address(nokia5110, 0, 0);
++}
++
++static int nokia5110_open(struct inode *inode, struct file *file) {
++    nokia5110_spi_device_t *nokia5110 = container_of(inode->i_cdev, nokia5110_spi_device_t, my_cdev);
++    file->private_data = nokia5110;
++
++    printk(KERN_INFO DEVICE_NAME ": open\n");
++    return 0;
++}
++
++static int nokia5110_release(struct inode *inode, struct file *file) {
++    printk(KERN_INFO DEVICE_NAME ": release\n");
++    return 0;
++}
++
++static ssize_t nokia5110_write(struct file *file, const char __user *user_buf, size_t size, loff_t *offset) {
++    nokia5110_spi_device_t *nokia5110 = (nokia5110_spi_device_t *)file->private_data;
++
++    int bytes_write = size;
++    if (size > KBUFFER_CAP - 1) {
++        bytes_write = KBUFFER_CAP - 1;
++    }
++    if (copy_from_user(nokia5110->kmalloc_ptr, user_buf, bytes_write)) {
++        return -1;
++    }
++    nokia5110->kmalloc_ptr[bytes_write] = '\0';
++    nokia5110_display_print_string(nokia5110, nokia5110->kmalloc_ptr, bytes_write);
++    printk(KERN_INFO DEVICE_NAME ": received %d bytes from user\n", bytes_write);
++
++    return bytes_write;
++}
++
++static const struct of_device_id nokia5110_of_match[] = {
++    { .compatible = "nokia5110" },
++    { }
++};
++
++static struct spi_driver nokia5110_driver = {
++    .driver = {
++        .name = DEVICE_NAME,
++        .owner = THIS_MODULE,
++        .of_match_table = nokia5110_of_match
++    },
++    .probe = nokia5110_probe,
++    .remove = nokia5110_remove,
++};
++
++static int __init nokia5110_init(void) {   
++    if ((nokia5110_module.my_class = class_create(THIS_MODULE, CLASS_NAME)) == NULL) {
++        printk(KERN_ERR DEVICE_NAME ": Cannot create class.\n");
++        return -1;
++    }
++
++    if (alloc_chrdev_region(&nokia5110_module.major, 0, MAX_MINOR, DEVICE_NAME) < 0) {
++        printk(KERN_ERR DEVICE_NAME ": Cannot allocate kernel device.\n");
++        class_destroy(nokia5110_module.my_class);
++        return -1;
++    }
++    nokia5110_module.minor = 0;
++
++    if (spi_register_driver(&nokia5110_driver)) {
++        printk(KERN_ERR DEVICE_NAME ": Cannot register SPI driver.\n");
++        unregister_chrdev_region(nokia5110_module.major, MAX_MINOR);
++        class_destroy(nokia5110_module.my_class);
++        return -1;
++    }
++
++    printk(KERN_INFO DEVICE_NAME ": Hello, Kernel World 12345!\n");
++    return 0;
++}
++
++static void __exit nokia5110_exit(void) {
++    spi_unregister_driver(&nokia5110_driver);
++    class_destroy(nokia5110_module.my_class);
++    unregister_chrdev_region(nokia5110_module.major, MAX_MINOR);
++    printk(KERN_INFO DEVICE_NAME ": Module removed.\n");
++}
++
++module_init(nokia5110_init);
++module_exit(nokia5110_exit);
++
++// Module metadata
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("DataD");
++MODULE_DESCRIPTION("A simple nokia5110 driver");
+diff --git a/drivers/ssd1306/Kconfig b/drivers/ssd1306/Kconfig
+new file mode 100644
+index 000000000000..3b8017fc3bbd
+--- /dev/null
++++ b/drivers/ssd1306/Kconfig
+@@ -0,0 +1,10 @@
++# SPDX-License-Identifier: GPL-2.0-only
++
++config SSD1306_I2C
++	bool "SSD1306 OLED display support"
++	depends on I2C 
++	default y if ARM
++	help
++	  Say Y here to build support for SSD1306-based OLED displays directly
++	  into the kernel image. This is required when the framebuffer needs to
++	  be available before modules can be loaded.
+diff --git a/drivers/ssd1306/Makefile b/drivers/ssd1306/Makefile
+new file mode 100644
+index 000000000000..5f75380dd8f3
+--- /dev/null
++++ b/drivers/ssd1306/Makefile
+@@ -0,0 +1,3 @@
++# SPDX-License-Identifier: GPL-2.0-only
++
++obj-$(CONFIG_SSD1306_I2C) += ssd1306.o
+diff --git a/drivers/ssd1306/ssd1306.c b/drivers/ssd1306/ssd1306.c
+new file mode 100644
+index 000000000000..867f68b01c61
+--- /dev/null
++++ b/drivers/ssd1306/ssd1306.c
+@@ -0,0 +1,484 @@
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/init.h>
++#include <linux/fs.h>
++#include <linux/cdev.h>
++#include <linux/device.h>
++#include <linux/i2c.h>
++#include <linux/string.h>
++#include <linux/kernel.h>
++#include <linux/kdev_t.h>
++#include <linux/delay.h>
++
++#define CLASS_NAME "my_mono_color_lcd_class"
++#define DEVICE_NAME "ssd1306"
++#define MAX_MINOR 256
++#define KBUFFER_CAP 256
++#define SSD1306_MAX_SEG 128
++#define SSD1306_MAX_LINE 7
++#define SSD1306_FONT_SPACING 1
++
++struct ssd1306_module_params {
++    struct class *my_class;
++    dev_t major;
++    dev_t minor;
++} ssd1306_module;
++
++typedef struct ssd1306_i2c_device {
++    struct i2c_client *client;
++    uint8_t current_line;
++    uint8_t cursor_pos;
++    uint8_t font_size;
++    dev_t dev_num;
++    size_t kbuf_len;
++    char *kmalloc_ptr;
++    struct cdev my_cdev;
++    struct device *my_device;
++} ssd1306_i2c_device_t;
++
++typedef enum ssd1306_ctrl_byte {
++    SSD1306_CTRL_CMD = 0x00,
++    SSD1306_CTRL_DATA = 0x40
++} ssd1306_ctrl_byte_t;
++
++// 5x8 ASCII font, columns are bytes (LSB = top pixel)
++// printable ASCII 0x20..0x7E (95 chars), index = ch - 32
++static const uint8_t font5x8[95][5] = {
++  {0x00,0x00,0x00,0x00,0x00}, // 0x20 ' '
++  {0x00,0x00,0x5F,0x00,0x00}, // 0x21 '!'
++  {0x00,0x07,0x00,0x07,0x00}, // 0x22 '"'
++  {0x14,0x7F,0x14,0x7F,0x14}, // 0x23 '#'
++  {0x24,0x2A,0x7F,0x2A,0x12}, // 0x24 '$'
++  {0x23,0x13,0x08,0x64,0x62}, // 0x25 '%'
++  {0x36,0x49,0x55,0x22,0x50}, // 0x26 '&'
++  {0x00,0x05,0x03,0x00,0x00}, // 0x27 '''
++  {0x00,0x1C,0x22,0x41,0x00}, // 0x28 '('
++  {0x00,0x41,0x22,0x1C,0x00}, // 0x29 ')'
++  {0x14,0x08,0x3E,0x08,0x14}, // 0x2A '*'
++  {0x08,0x08,0x3E,0x08,0x08}, // 0x2B '+'
++  {0x00,0x50,0x30,0x00,0x00}, // 0x2C ','
++  {0x08,0x08,0x08,0x08,0x08}, // 0x2D '-'
++  {0x00,0x60,0x60,0x00,0x00}, // 0x2E '.'
++  {0x20,0x10,0x08,0x04,0x02}, // 0x2F '/'
++  {0x3E,0x51,0x49,0x45,0x3E}, // 0x30 '0'
++  {0x00,0x42,0x7F,0x40,0x00}, // 0x31 '1'
++  {0x42,0x61,0x51,0x49,0x46}, // 0x32 '2'
++  {0x21,0x41,0x45,0x4B,0x31}, // 0x33 '3'
++  {0x18,0x14,0x12,0x7F,0x10}, // 0x34 '4'
++  {0x27,0x45,0x45,0x45,0x39}, // 0x35 '5'
++  {0x3C,0x4A,0x49,0x49,0x30}, // 0x36 '6'
++  {0x01,0x71,0x09,0x05,0x03}, // 0x37 '7'
++  {0x36,0x49,0x49,0x49,0x36}, // 0x38 '8'
++  {0x06,0x49,0x49,0x29,0x1E}, // 0x39 '9'
++  {0x00,0x36,0x36,0x00,0x00}, // 0x3A ':'
++  {0x00,0x56,0x36,0x00,0x00}, // 0x3B ';'
++  {0x08,0x14,0x22,0x41,0x00}, // 0x3C '<'
++  {0x14,0x14,0x14,0x14,0x14}, // 0x3D '='
++  {0x00,0x41,0x22,0x14,0x08}, // 0x3E '>'
++  {0x02,0x01,0x51,0x09,0x06}, // 0x3F '?'
++  {0x32,0x49,0x79,0x41,0x3E}, // 0x40 '@'
++  {0x7E,0x11,0x11,0x11,0x7E}, // 0x41 'A'
++  {0x7F,0x49,0x49,0x49,0x36}, // 0x42 'B'
++  {0x3E,0x41,0x41,0x41,0x22}, // 0x43 'C'
++  {0x7F,0x41,0x41,0x22,0x1C}, // 0x44 'D'
++  {0x7F,0x49,0x49,0x49,0x41}, // 0x45 'E'
++  {0x7F,0x09,0x09,0x09,0x01}, // 0x46 'F'
++  {0x3E,0x41,0x49,0x49,0x7A}, // 0x47 'G'
++  {0x7F,0x08,0x08,0x08,0x7F}, // 0x48 'H'
++  {0x00,0x41,0x7F,0x41,0x00}, // 0x49 'I'
++  {0x20,0x40,0x41,0x3F,0x01}, // 0x4A 'J'
++  {0x7F,0x08,0x14,0x22,0x41}, // 0x4B 'K'
++  {0x7F,0x40,0x40,0x40,0x40}, // 0x4C 'L'
++  {0x7F,0x02,0x0C,0x02,0x7F}, // 0x4D 'M'
++  {0x7F,0x04,0x08,0x10,0x7F}, // 0x4E 'N'
++  {0x3E,0x41,0x41,0x41,0x3E}, // 0x4F 'O'
++  {0x7F,0x09,0x09,0x09,0x06}, // 0x50 'P'
++  {0x3E,0x41,0x51,0x21,0x5E}, // 0x51 'Q'
++  {0x7F,0x09,0x19,0x29,0x46}, // 0x52 'R'
++  {0x46,0x49,0x49,0x49,0x31}, // 0x53 'S'
++  {0x01,0x01,0x7F,0x01,0x01}, // 0x54 'T'
++  {0x3F,0x40,0x40,0x40,0x3F}, // 0x55 'U'
++  {0x1F,0x20,0x40,0x20,0x1F}, // 0x56 'V'
++  {0x7F,0x20,0x18,0x20,0x7F}, // 0x57 'W'
++  {0x63,0x14,0x08,0x14,0x63}, // 0x58 'X'
++  {0x07,0x08,0x70,0x08,0x07}, // 0x59 'Y'
++  {0x61,0x51,0x49,0x45,0x43}, // 0x5A 'Z'
++  {0x00,0x7F,0x41,0x41,0x00}, // 0x5B '['
++  {0x02,0x04,0x08,0x10,0x20}, // 0x5C '\'
++  {0x00,0x41,0x41,0x7F,0x00}, // 0x5D ']'
++  {0x04,0x02,0x01,0x02,0x04}, // 0x5E '^'
++  {0x40,0x40,0x40,0x40,0x40}, // 0x5F '_'
++  {0x00,0x01,0x02,0x04,0x00}, // 0x60 '`'
++  {0x20,0x54,0x54,0x54,0x78}, // 0x61 'a'
++  {0x7F,0x48,0x44,0x44,0x38}, // 0x62 'b'
++  {0x38,0x44,0x44,0x44,0x20}, // 0x63 'c'
++  {0x38,0x44,0x44,0x48,0x7F}, // 0x64 'd'
++  {0x38,0x54,0x54,0x54,0x18}, // 0x65 'e'
++  {0x08,0x7E,0x09,0x01,0x02}, // 0x66 'f'
++  {0x0C,0x52,0x52,0x52,0x3E}, // 0x67 'g'
++  {0x7F,0x08,0x04,0x04,0x78}, // 0x68 'h'
++  {0x00,0x44,0x7D,0x40,0x00}, // 0x69 'i'
++  {0x20,0x40,0x44,0x3D,0x00}, // 0x6A 'j'
++  {0x7F,0x10,0x28,0x44,0x00}, // 0x6B 'k'
++  {0x00,0x41,0x7F,0x40,0x00}, // 0x6C 'l'
++  {0x7C,0x04,0x18,0x04,0x78}, // 0x6D 'm'
++  {0x7C,0x08,0x04,0x04,0x78}, // 0x6E 'n'
++  {0x38,0x44,0x44,0x44,0x38}, // 0x6F 'o'
++  {0x7C,0x14,0x14,0x14,0x08}, // 0x70 'p'
++  {0x08,0x14,0x14,0x14,0x7C}, // 0x71 'q'
++  {0x7C,0x08,0x04,0x04,0x08}, // 0x72 'r'
++  {0x48,0x54,0x54,0x54,0x20}, // 0x73 's'
++  {0x04,0x3F,0x44,0x40,0x20}, // 0x74 't'
++  {0x3C,0x40,0x40,0x20,0x7C}, // 0x75 'u'
++  {0x1C,0x20,0x40,0x20,0x1C}, // 0x76 'v'
++  {0x3C,0x40,0x30,0x40,0x3C}, // 0x77 'w'
++  {0x44,0x28,0x10,0x28,0x44}, // 0x78 'x'
++  {0x0C,0x50,0x50,0x50,0x3C}, // 0x79 'y'
++  {0x44,0x64,0x54,0x4C,0x44}, // 0x7A 'z'
++  {0x00,0x08,0x36,0x41,0x00}, // 0x7B '{'
++  {0x00,0x00,0x7F,0x00,0x00}, // 0x7C '|'
++  {0x00,0x41,0x36,0x08,0x00}, // 0x7D '}'
++  {0x08,0x08,0x2A,0x1C,0x08}  // 0x7E '~'
++};
++
++static int ssd1306_probe(struct i2c_client *client);
++static int ssd1306_remove(struct i2c_client *client);
++void ssd1306_init_sequence(ssd1306_i2c_device_t *);
++static int ssd1306_send_command(ssd1306_i2c_device_t *, uint8_t);
++static int ssd1306_send_data(ssd1306_i2c_device_t *, char*, uint16_t);
++static int ssd1306_set_cursor(ssd1306_i2c_device_t *, uint8_t, uint8_t);
++void ssd1306_display_print_string(ssd1306_i2c_device_t *, const char *, size_t);
++void ssd1306_display_fill_remaining(ssd1306_i2c_device_t *, uint8_t);
++void ssd1306_cleanup(ssd1306_i2c_device_t *);
++
++static int ssd1306_open(struct inode *, struct file *);
++static int ssd1306_release(struct inode *, struct file *);
++static ssize_t ssd1306_write(struct file *, const char __user *, size_t, loff_t *);
++
++static struct file_operations fops = {
++    .open = ssd1306_open,
++    .release = ssd1306_release,
++    .write = ssd1306_write,
++};
++
++static int ssd1306_probe(struct i2c_client *client) {
++    ssd1306_i2c_device_t *ssd1306;
++    char* test_str = "Hello, World!\n";
++
++    ssd1306 = (ssd1306_i2c_device_t *)kmalloc(sizeof(ssd1306_i2c_device_t), GFP_KERNEL);
++    if (!ssd1306) {
++        return -ENOMEM;
++    }
++
++    ssd1306->kmalloc_ptr = (char *)kmalloc(KBUFFER_CAP, GFP_KERNEL);
++    if (ssd1306->kmalloc_ptr == NULL) {
++        printk(KERN_ERR "Cannot allocate kernel buffer.\n");
++        goto ssd1306_fail;
++    }
++
++    cdev_init(&ssd1306->my_cdev, &fops);
++    ssd1306->dev_num = MKDEV(MAJOR(ssd1306_module.major), ssd1306_module.minor);
++    if (cdev_add(&ssd1306->my_cdev, ssd1306->dev_num, 1)) {
++        printk(KERN_ERR "Failed to add device.\n");
++        goto cdev_add_fail;
++    }
++    ssd1306_module.minor++;
++
++    if (device_create(ssd1306_module.my_class, NULL, ssd1306->dev_num, NULL, "%s%d", DEVICE_NAME, MINOR(ssd1306->dev_num)) == NULL) {
++         printk(KERN_ERR "Cannot create device.\n");
++         goto device_create_fail;
++    }
++
++    ssd1306->kbuf_len = 0;
++    ssd1306->client = client;
++    ssd1306->current_line = 0;
++    ssd1306->cursor_pos = 0;
++    ssd1306->font_size = 5 + SSD1306_FONT_SPACING;
++
++    i2c_set_clientdata(client, ssd1306);
++    ssd1306_init_sequence(ssd1306);
++    ssd1306_cleanup(ssd1306);
++    ssd1306_display_print_string(ssd1306, test_str, sizeof(test_str) - 1);
++
++    printk(KERN_INFO DEVICE_NAME ": I2C device is detected.\n");
++    return 0;
++
++    device_create_fail:
++    cdev_del(&ssd1306->my_cdev);
++    cdev_add_fail:
++    kfree(ssd1306->kmalloc_ptr);
++    ssd1306_fail:
++    kfree(ssd1306);
++    return -1;
++}
++
++static int ssd1306_remove(struct i2c_client *client) {
++    ssd1306_i2c_device_t *ssd1306 = i2c_get_clientdata(client);
++    if (!ssd1306) {
++        return -EINVAL;
++    }
++
++    device_destroy(ssd1306_module.my_class, ssd1306->dev_num);
++    cdev_del(&ssd1306->my_cdev);
++    kfree(ssd1306->kmalloc_ptr);
++    kfree(ssd1306);
++
++    printk(KERN_INFO DEVICE_NAME ": I2C device is removed.\n");
++    return 0;
++}
++
++void ssd1306_init_sequence(ssd1306_i2c_device_t *ssd1306) {
++    //msleep(100);
++
++    ssd1306_send_command(ssd1306, 0xAE); // Set display OFF		
++ 
++    ssd1306_send_command(ssd1306, 0xD5); // Set Display Clock Divide Ratio / OSC Frequency
++    ssd1306_send_command(ssd1306, 0x80); // Display Clock Divide Ratio / OSC Frequency 
++ 
++    ssd1306_send_command(ssd1306, 0xA8); // Set Multiplex Ratio
++    ssd1306_send_command(ssd1306, 0x3F); // Multiplex Ratio for 128x64 (64-1)
++ 
++    ssd1306_send_command(ssd1306, 0xD3); // Set Display Offset
++    ssd1306_send_command(ssd1306, 0x00); // Display Offset
++ 
++    ssd1306_send_command(ssd1306, 0x40); // Set Display Start Line
++ 
++    ssd1306_send_command(ssd1306, 0x8D); // Set Charge Pump
++    ssd1306_send_command(ssd1306, 0x14); // Charge Pump (0x10 External, 0x14 Internal DC/DC)
++ 
++    ssd1306_send_command(ssd1306, 0xA1); // Set Segment Re-Map
++    ssd1306_send_command(ssd1306, 0xC8); // Set Com Output Scan Direction
++ 
++    ssd1306_send_command(ssd1306, 0xDA); // Set COM Hardware Configuration
++    ssd1306_send_command(ssd1306, 0x12); // COM Hardware Configuration
++ 
++    ssd1306_send_command(ssd1306, 0x81); // Set Contrast
++    ssd1306_send_command(ssd1306, 0xCF); // Contrast
++ 
++    ssd1306_send_command(ssd1306, 0xD9); // Set Pre-Charge Period
++    ssd1306_send_command(ssd1306, 0xF1); // Set Pre-Charge Period (0x22 External, 0xF1 Internal)
++ 
++    ssd1306_send_command(ssd1306, 0xDB); // Set VCOMH Deselect Level
++    ssd1306_send_command(ssd1306, 0x40); // VCOMH Deselect Level
++ 
++    ssd1306_send_command(ssd1306, 0xA4); // Set all pixels OFF
++    ssd1306_send_command(ssd1306, 0xA6); // Set display not inverted
++    ssd1306_send_command(ssd1306, 0xAF); // Set display On
++}
++
++static int ssd1306_send_command(ssd1306_i2c_device_t *ssd1306, uint8_t command) {
++    char buf[2];
++    buf[0] = SSD1306_CTRL_CMD;
++    buf[1] = command;
++    return i2c_master_send(ssd1306->client, buf, 2);
++}
++
++static int ssd1306_send_data(ssd1306_i2c_device_t *ssd1306, char *data_buf, uint16_t buf_len) {
++    while (buf_len > 0) {
++        int chunk_len = min((int)buf_len, 16);
++        uint8_t buf[1 + 16];
++        int ret;
++
++        buf[0] = SSD1306_CTRL_DATA;
++        memcpy(&buf[1], data_buf, chunk_len);
++
++        ret = i2c_master_send(ssd1306->client, buf, chunk_len + 1);
++        if (ret != chunk_len + 1) {
++            return (ret < 0) ? ret : -EIO;
++        }
++
++        data_buf += chunk_len;
++        buf_len  -= chunk_len;
++    }
++
++    return 0;
++}
++
++static int ssd1306_set_cursor(ssd1306_i2c_device_t *ssd1306, uint8_t line, uint8_t pos) {
++    if (line > SSD1306_MAX_LINE || pos > SSD1306_MAX_SEG) {
++        printk(KERN_ERR DEVICE_NAME ": Invalid cursor position (line: %d, pos: %d)\n", line, pos);
++        return -EINVAL;
++    }
++    ssd1306->current_line = line;
++    ssd1306->cursor_pos = pos;
++
++    ssd1306_send_command(ssd1306, 0xB0 | line); // Set page address
++    ssd1306_send_command(ssd1306, 0x00 | (pos & 0x0F)); // Set lower column address
++    ssd1306_send_command(ssd1306, 0x10 | ((pos >> 4) & 0x0F)); // Set higher column address
++
++    return 0;
++}
++
++void ssd1306_display_print_string(ssd1306_i2c_device_t *ssd1306, const char *str, size_t len) {
++    char *str_temp;
++    char *kbuffer;
++    size_t i, j;
++    uint16_t kbuf_index = 0;
++
++    str_temp = (char *)kmalloc(len + 1, GFP_KERNEL);
++    if (!str_temp) {
++        printk(KERN_ERR DEVICE_NAME ": Failed to allocate memory for string copy.\n");
++        return;
++    }
++    strncpy(str_temp, str, len);
++    str_temp[len] = '\0';
++
++    kbuffer = (char *)kmalloc(ssd1306->font_size * len, GFP_KERNEL);
++    if (!kbuffer) {
++        printk(KERN_ERR DEVICE_NAME ": Failed to allocate memory for string rendering.\n");
++        return;
++    }
++
++    for (i = 0; i < len; i++) {
++        if (str_temp[i] == '\n') {
++            ssd1306_display_fill_remaining(ssd1306, ssd1306->cursor_pos);
++            ssd1306->current_line++;
++            ssd1306->cursor_pos = 0;
++            if (ssd1306->current_line > SSD1306_MAX_LINE) {
++                ssd1306->current_line = 0;
++            }
++            ssd1306_set_cursor(ssd1306, ssd1306->current_line, ssd1306->cursor_pos);
++            continue;
++        } else if (str_temp[i] < 0x20 || str_temp[i] > 0x7E) {
++            str_temp[i] = '?'; // Replace unsupported characters with '?'
++        }
++
++        // Render characters to kbuffer
++        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][0];
++        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][1];
++        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][2];
++        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][3];
++        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][4];
++        for (j = 0; j < SSD1306_FONT_SPACING; j++) {
++            kbuffer[kbuf_index++] = 0x00; // Add spacing between characters
++        }
++
++        ssd1306_send_data(ssd1306, kbuffer, ssd1306->font_size);
++        kbuf_index = 0;
++        ssd1306->cursor_pos += ssd1306->font_size;
++
++        // Prepare for next character
++        if (ssd1306->cursor_pos + ssd1306->font_size > SSD1306_MAX_SEG) {
++            ssd1306_display_fill_remaining(ssd1306, ssd1306->cursor_pos);
++            ssd1306->current_line++;
++            ssd1306->cursor_pos = 0;
++            if (ssd1306->current_line > SSD1306_MAX_LINE) {
++                ssd1306->current_line = 0;
++            }
++        }
++        ssd1306_set_cursor(ssd1306, ssd1306->current_line, ssd1306->cursor_pos);
++    }
++}
++
++void ssd1306_display_fill_remaining(ssd1306_i2c_device_t *ssd1306, uint8_t pos) {
++    uint8_t remaining_bytes = SSD1306_MAX_SEG - pos;
++    char *clear_buf;
++
++    clear_buf = (char *)kmalloc(remaining_bytes, GFP_KERNEL);
++    if (!clear_buf) {
++        printk(KERN_ERR DEVICE_NAME ": Failed to allocate memory for clearing display.\n");
++        return;
++    }
++    
++    memset(clear_buf, 0x00, remaining_bytes);
++    printk(KERN_INFO DEVICE_NAME ": Filling remaining %d bytes on line %d from position %d\n", remaining_bytes, ssd1306->current_line, pos);
++
++    ssd1306_send_data(ssd1306, clear_buf, remaining_bytes);
++    kfree(clear_buf);
++}
++
++void ssd1306_cleanup(ssd1306_i2c_device_t *ssd1306) {
++    int line;
++
++    for (line = 0; line <= SSD1306_MAX_LINE; line++) {
++        ssd1306_set_cursor(ssd1306, line, 0);
++        ssd1306_display_fill_remaining(ssd1306, 0);
++    }
++    ssd1306_set_cursor(ssd1306, 0, 0);
++}
++
++static int ssd1306_open(struct inode *inode, struct file *file) {
++    ssd1306_i2c_device_t *ssd1306 = container_of(inode->i_cdev, ssd1306_i2c_device_t, my_cdev);
++    file->private_data = ssd1306;
++
++    printk(KERN_INFO DEVICE_NAME ": open\n");
++    return 0;
++}
++
++static int ssd1306_release(struct inode *inode, struct file *file) {
++    printk(KERN_INFO DEVICE_NAME ": release\n");
++    return 0;
++}
++
++static ssize_t ssd1306_write(struct file *file, const char __user *user_buf, size_t size, loff_t *offset) {
++    ssd1306_i2c_device_t *ssd1306 = (ssd1306_i2c_device_t *)file->private_data;
++
++    int bytes_write = size;
++    if (size > KBUFFER_CAP - 1) {
++        bytes_write = KBUFFER_CAP - 1;
++    }
++    if (copy_from_user(ssd1306->kmalloc_ptr, user_buf, bytes_write)) {
++        return -1;
++    }
++    ssd1306->kmalloc_ptr[bytes_write] = '\0';
++    ssd1306_display_print_string(ssd1306, ssd1306->kmalloc_ptr, bytes_write);
++    printk(DEVICE_NAME ": received %d bytes from user\n", bytes_write);
++
++    return bytes_write;
++}
++
++static const struct of_device_id ssd1306_of_match[] = {
++    { .compatible = "solomon,ssd1306" },
++    { }
++};
++
++static struct i2c_driver ssd1306_driver = {
++    .driver = {
++        .name = DEVICE_NAME,
++        .owner = THIS_MODULE,
++        .of_match_table = ssd1306_of_match
++    },
++    .probe_new = ssd1306_probe,
++    .remove = ssd1306_remove,
++};
++
++static int __init ssd1306_init(void)
++{   
++    if ((ssd1306_module.my_class = class_create(THIS_MODULE, CLASS_NAME)) == NULL) {
++        printk(KERN_ERR "Cannot create class.\n");
++        return -1;
++    }
++    if (alloc_chrdev_region(&ssd1306_module.major, 0, MAX_MINOR, DEVICE_NAME) < 0) {
++        printk(KERN_ERR "Cannot allocate kernel device.\n");
++        class_destroy(ssd1306_module.my_class);
++        return -1;
++    }
++    ssd1306_module.minor = 0;
++    
++    if (i2c_add_driver(&ssd1306_driver)) {
++        printk(KERN_ERR "i2c_add_driver failed. \n");
++        class_destroy(ssd1306_module.my_class);
++        unregister_chrdev_region(ssd1306_module.major, MAX_MINOR);
++        return -1;
++    }
++
++    printk(KERN_INFO "Hello, Kernel World!\n");
++    return 0;
++}
++
++static void __exit ssd1306_exit(void)
++{
++    i2c_del_driver(&ssd1306_driver);
++
++    class_destroy(ssd1306_module.my_class);
++    unregister_chrdev_region(ssd1306_module.major, MAX_MINOR);
++    printk(KERN_INFO "Module removed.\n");
++}
++
++module_init(ssd1306_init);
++module_exit(ssd1306_exit);
++
++// Module metadata
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("DataD");
++MODULE_DESCRIPTION("A simple ssd1306 driver");
+-- 
+2.34.1
+
