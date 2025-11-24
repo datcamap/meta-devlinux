@@ -1,7 +1,7 @@
 From 16786247ab0fd2f0aea9083abbeecb3c2ab0871b Mon Sep 17 00:00:00 2001
 From: Chen-Yu Tsai <wens@kernel.org>
 Date: Thu, 7 Dec 2023 21:20:50 +0800
-Subject: [PATCH 1/4] wifi: cfg80211: Add my certificate
+Subject: [PATCH 1/5] wifi: cfg80211: Add my certificate
 
 commit fb768d3b13ffa325b7e84480d488ac799c9d2cd7 upstream.
 

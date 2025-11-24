@@ -1,7 +1,7 @@
 From 4c2e9554818e08d00a798fb23e30583787c6da19 Mon Sep 17 00:00:00 2001
 From: datcamap <vipronline24h@gmail.com>
 Date: Mon, 3 Nov 2025 16:43:18 +0700
-Subject: [PATCH 4/4] Add illi9225 device tree node
+Subject: [PATCH 4/5] Add illi9225 device tree node
 
 ---
  arch/arm/boot/dts/bcm2711-rpi-4-b.dts | 29 +++++++++----

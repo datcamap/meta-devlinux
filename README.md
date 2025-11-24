@@ -1,6 +1,15 @@
-This is my custom yocto layer to configure raspberry pi 4
+## My custom yocto layers for Raspberry Pi 4 Model B
 
-### Adding these to your conf/local.conf file
+__meta-communication:__ add UART console support and Wifi configuration
+__meta-display:__ add support for ILI9225 TFT display with SPI0 and SH1106 monitor with I2C1
+
+### Adding each layer to your build by running 
+
+```bash
+bitbake-layers add-layer [path to layer]
+```
+
+### Also add these to your conf/local.conf file
 
 ```conf
 MACHINE ?= "raspberrypi4"
@@ -16,7 +25,9 @@ VIRTUAL-RUNTIME_init_manager = "systemd"
 VIRTUAL-RUNTIME_initscripts = "systemd-compat-units"
 VIRTUAL-RUNTIME_init = "systemd"
 PREFERRED_PROVIDER_virtual/init = "systemd"
+
 IMAGE_INSTALL:remove = " sysvinit"
+
 RM_OLD_IMGAGES = "1"
 INHERIT += "extrausers rm_work"
 EXTRA_USERS_PARAMS = "groupadd netdev; "

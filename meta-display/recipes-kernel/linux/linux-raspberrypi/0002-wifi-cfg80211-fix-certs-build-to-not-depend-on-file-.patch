@@ -1,7 +1,7 @@
 From c2a22a56c758d7b16c988e55f2d709aea96d15cf Mon Sep 17 00:00:00 2001
 From: Johannes Berg <johannes.berg@intel.com>
 Date: Thu, 14 Dec 2023 09:08:16 +0100
-Subject: [PATCH 2/4] wifi: cfg80211: fix certs build to not depend on file
+Subject: [PATCH 2/5] wifi: cfg80211: fix certs build to not depend on file
  order
 
 commit 3c2a8ebe3fe66a5f77d4c164a0bea8e2ff37b455 upstream.

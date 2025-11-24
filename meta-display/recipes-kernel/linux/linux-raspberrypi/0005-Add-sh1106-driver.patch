@@ -1,0 +1,739 @@
+From da6d019d2eb720b77ab3ed253a5a5e7d93df48c5 Mon Sep 17 00:00:00 2001
+From: datcamap <vipronline24h@gmail.com>
+Date: Mon, 24 Nov 2025 11:13:38 +0700
+Subject: [PATCH 5/5] Add sh1106 driver
+
+---
+ arch/arm/boot/dts/bcm2711-rpi-4-b.dts |  24 +-
+ arch/arm/configs/bcm2711_defconfig    |   1 +
+ drivers/Kconfig                       |   2 +-
+ drivers/Makefile                      |   1 +
+ drivers/nokia5110/nokia5110.c         |   2 +-
+ drivers/sh1106/Kconfig                |  10 +
+ drivers/sh1106/Makefile               |   3 +
+ drivers/sh1106/sh1106.c               | 513 ++++++++++++++++++++++++++
+ drivers/ssd1306/ssd1306.c             |  36 +-
+ 9 files changed, 575 insertions(+), 17 deletions(-)
+ create mode 100644 drivers/sh1106/Kconfig
+ create mode 100644 drivers/sh1106/Makefile
+ create mode 100644 drivers/sh1106/sh1106.c
+
+diff --git a/arch/arm/boot/dts/bcm2711-rpi-4-b.dts b/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
+index de183f4aed89..b1f26cd89a66 100644
+--- a/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
++++ b/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
+@@ -520,11 +520,31 @@ &i2c1 {
+ 	
+ 	status = "okay";
+ 
+-	ssd1306@3c {
+-		compatible = "solomon,ssd1306";
++	sh1106@3c {
++		compatible = "solomon,sh1106";
+ 		reg = <0x3c>;
+ 		status = "okay";
+ 	};
++
++	// ssd1306@3c {
++	// 	compatible = "solomon,ssd1306";
++	// 	reg = <0x3c>;
++	// 	status = "okay";
++	// };
++
++	// ssd1306: oled@3c {
++	// 	compatible = "solomon,ssd1306fb-i2c";
++	// 	reg = <0x3c>;
++	// 	solomon,width = <128>;
++	// 	solomon,height = <64>;
++	// 	// pwms = <&pwm 4 3000>;
++	// 	// reset-gpios = <&gpio 7>;
++	// 	solomon,com-lrremap;
++	// 	solomon,com-invdir;
++	// 	solomon,com-offset = <32>;
++	// 	solomon,lookup-table = /bits/ 8 <0x3f 0x3f 0x3f 0x3f>;
++	// 	status = "okay";
++	// };
+ };
+ 
+ &i2s {
+diff --git a/arch/arm/configs/bcm2711_defconfig b/arch/arm/configs/bcm2711_defconfig
+index 11eb599f84a3..3c6834553899 100644
+--- a/arch/arm/configs/bcm2711_defconfig
++++ b/arch/arm/configs/bcm2711_defconfig
+@@ -1600,4 +1600,5 @@ CONFIG_BLK_DEV_IO_TRACE=y
+ # CONFIG_UPROBE_EVENTS is not set
+ # MY_CONFIG
+ CONFIG_SSD1306_I2C=m
++CONFIG_SH1106_I2C=m
+ CONFIG_NOKIA5110_SPI=m
+diff --git a/drivers/Kconfig b/drivers/Kconfig
+index 651d697835a3..22479bc49bcd 100644
+--- a/drivers/Kconfig
++++ b/drivers/Kconfig
+@@ -237,7 +237,7 @@ source "drivers/counter/Kconfig"
+ 
+ source "drivers/most/Kconfig"
+ 
+-source "drivers/ssd1306/Kconfig"
++source "drivers/sh1106/Kconfig"
+ 
+ source "drivers/nokia5110/Kconfig"
+ endmenu
+diff --git a/drivers/Makefile b/drivers/Makefile
+index e58b736543e5..ebb278ce5725 100644
+--- a/drivers/Makefile
++++ b/drivers/Makefile
+@@ -188,4 +188,5 @@ obj-$(CONFIG_INTERCONNECT)	+= interconnect/
+ obj-$(CONFIG_COUNTER)		+= counter/
+ obj-$(CONFIG_MOST)		+= most/
+ obj-$(CONFIG_SSD1306_I2C)		+= ssd1306/
++obj-$(CONFIG_SH1106_I2C)		+= sh1106/
+ obj-$(CONFIG_NOKIA5110_SPI)		+= nokia5110/
+diff --git a/drivers/nokia5110/nokia5110.c b/drivers/nokia5110/nokia5110.c
+index b32bb3aeddcc..ee20ba197139 100644
+--- a/drivers/nokia5110/nokia5110.c
++++ b/drivers/nokia5110/nokia5110.c
+@@ -453,7 +453,7 @@ static int __init nokia5110_init(void) {
+         return -1;
+     }
+ 
+-    printk(KERN_INFO DEVICE_NAME ": Hello, Kernel World 12345!\n");
++    printk(KERN_INFO DEVICE_NAME ": Hello, Kernel World!\n");
+     return 0;
+ }
+ 
+diff --git a/drivers/sh1106/Kconfig b/drivers/sh1106/Kconfig
+new file mode 100644
+index 000000000000..118b8366446c
+--- /dev/null
++++ b/drivers/sh1106/Kconfig
+@@ -0,0 +1,10 @@
++# SPDX-License-Identifier: GPL-2.0-only
++
++config SH1106_I2C
++	tristate "SH1106 OLED display support"
++	depends on I2C 
++	default m
++	help
++	  Say Y here to build support for SH1106-based OLED displays directly
++	  into the kernel image. This is required when the framebuffer needs to
++	  be available before modules can be loaded.
+diff --git a/drivers/sh1106/Makefile b/drivers/sh1106/Makefile
+new file mode 100644
+index 000000000000..c2153488b38b
+--- /dev/null
++++ b/drivers/sh1106/Makefile
+@@ -0,0 +1,3 @@
++# SPDX-License-Identifier: GPL-2.0-only
++
++obj-$(CONFIG_SH1106_I2C) += sh1106.o
+diff --git a/drivers/sh1106/sh1106.c b/drivers/sh1106/sh1106.c
+new file mode 100644
+index 000000000000..460426730b41
+--- /dev/null
++++ b/drivers/sh1106/sh1106.c
+@@ -0,0 +1,513 @@
++#include <linux/module.h>
++#include <linux/kernel.h>
++#include <linux/init.h>
++#include <linux/fs.h>
++#include <linux/cdev.h>
++#include <linux/device.h>
++#include <linux/i2c.h>
++#include <linux/string.h>
++#include <linux/kernel.h>
++#include <linux/kdev_t.h>
++#include <linux/delay.h>
++
++#define CLASS_NAME "my_mono_lcd"
++#define DEVICE_NAME "sh1106"
++#define MAX_MINOR 256
++#define KBUFFER_CAP 256
++
++#define SH1106_COLUMN_LOW_ADDR  0x00
++#define SH1106_COLUMN_HIGH_ADDR 0x10
++#define SH1106_START_LINE       0x40
++#define SH1106_CONTRAST         0x81
++#define SH1106_SEG_REMAP        0xA0
++#define SH1106_MULTIPLEX_RATIO  0xA8
++#define SH1106_LINE_ADDR        0xB0
++#define SH1106_DISPLAY_OFFSET   0xD3
++
++#define SH1106_MAX_SEG (132 - SH1106_COLUMN_OFFSET)
++#define SH1106_COLUMN_OFFSET 2
++#define SH1106_MAX_LINE 7
++#define SH1106_FONT_SPACING 1
++
++#define SH1106_PRINTK(loglevel, fmt,...) \
++    printk(loglevel DEVICE_NAME ": " fmt, ##__VA_ARGS__)
++
++struct sh1106_module_params {
++    struct class *my_class;
++    dev_t major;
++    dev_t minor;
++} sh1106_module;
++
++typedef struct sh1106_i2c_device {
++    struct i2c_client *client;
++    uint8_t current_line;
++    uint8_t cursor_pos;
++    uint8_t font_size;
++    dev_t dev_num;
++    size_t kbuf_len;
++    char *kmalloc_ptr;
++    struct cdev my_cdev;
++    struct device *my_device;
++} sh1106_i2c_device_t;
++
++typedef enum sh1106_ctrl_byte {
++    SH1106_CTRL_DATA = 0x40,
++    SH1106_CTRL_CMD = 0x80,
++} sh1106_ctrl_byte_t;
++
++// 5x8 ASCII font, columns are bytes (LSB = top pixel)
++// printable ASCII 0x20..0x7E (95 chars), index = ch - 32
++static const uint8_t font5x8[95][5] = {
++  {0x00,0x00,0x00,0x00,0x00}, // 0x20 ' '
++  {0x00,0x00,0x5F,0x00,0x00}, // 0x21 '!'
++  {0x00,0x07,0x00,0x07,0x00}, // 0x22 '"'
++  {0x14,0x7F,0x14,0x7F,0x14}, // 0x23 '#'
++  {0x24,0x2A,0x7F,0x2A,0x12}, // 0x24 '$'
++  {0x23,0x13,0x08,0x64,0x62}, // 0x25 '%'
++  {0x36,0x49,0x55,0x22,0x50}, // 0x26 '&'
++  {0x00,0x05,0x03,0x00,0x00}, // 0x27 '''
++  {0x00,0x1C,0x22,0x41,0x00}, // 0x28 '('
++  {0x00,0x41,0x22,0x1C,0x00}, // 0x29 ')'
++  {0x14,0x08,0x3E,0x08,0x14}, // 0x2A '*'
++  {0x08,0x08,0x3E,0x08,0x08}, // 0x2B '+'
++  {0x00,0x50,0x30,0x00,0x00}, // 0x2C ','
++  {0x08,0x08,0x08,0x08,0x08}, // 0x2D '-'
++  {0x00,0x60,0x60,0x00,0x00}, // 0x2E '.'
++  {0x20,0x10,0x08,0x04,0x02}, // 0x2F '/'
++  {0x3E,0x51,0x49,0x45,0x3E}, // 0x30 '0'
++  {0x00,0x42,0x7F,0x40,0x00}, // 0x31 '1'
++  {0x42,0x61,0x51,0x49,0x46}, // 0x32 '2'
++  {0x21,0x41,0x45,0x4B,0x31}, // 0x33 '3'
++  {0x18,0x14,0x12,0x7F,0x10}, // 0x34 '4'
++  {0x27,0x45,0x45,0x45,0x39}, // 0x35 '5'
++  {0x3C,0x4A,0x49,0x49,0x30}, // 0x36 '6'
++  {0x01,0x71,0x09,0x05,0x03}, // 0x37 '7'
++  {0x36,0x49,0x49,0x49,0x36}, // 0x38 '8'
++  {0x06,0x49,0x49,0x29,0x1E}, // 0x39 '9'
++  {0x00,0x36,0x36,0x00,0x00}, // 0x3A ':'
++  {0x00,0x56,0x36,0x00,0x00}, // 0x3B ';'
++  {0x08,0x14,0x22,0x41,0x00}, // 0x3C '<'
++  {0x14,0x14,0x14,0x14,0x14}, // 0x3D '='
++  {0x00,0x41,0x22,0x14,0x08}, // 0x3E '>'
++  {0x02,0x01,0x51,0x09,0x06}, // 0x3F '?'
++  {0x32,0x49,0x79,0x41,0x3E}, // 0x40 '@'
++  {0x7E,0x11,0x11,0x11,0x7E}, // 0x41 'A'
++  {0x7F,0x49,0x49,0x49,0x36}, // 0x42 'B'
++  {0x3E,0x41,0x41,0x41,0x22}, // 0x43 'C'
++  {0x7F,0x41,0x41,0x22,0x1C}, // 0x44 'D'
++  {0x7F,0x49,0x49,0x49,0x41}, // 0x45 'E'
++  {0x7F,0x09,0x09,0x09,0x01}, // 0x46 'F'
++  {0x3E,0x41,0x49,0x49,0x7A}, // 0x47 'G'
++  {0x7F,0x08,0x08,0x08,0x7F}, // 0x48 'H'
++  {0x00,0x41,0x7F,0x41,0x00}, // 0x49 'I'
++  {0x20,0x40,0x41,0x3F,0x01}, // 0x4A 'J'
++  {0x7F,0x08,0x14,0x22,0x41}, // 0x4B 'K'
++  {0x7F,0x40,0x40,0x40,0x40}, // 0x4C 'L'
++  {0x7F,0x02,0x0C,0x02,0x7F}, // 0x4D 'M'
++  {0x7F,0x04,0x08,0x10,0x7F}, // 0x4E 'N'
++  {0x3E,0x41,0x41,0x41,0x3E}, // 0x4F 'O'
++  {0x7F,0x09,0x09,0x09,0x06}, // 0x50 'P'
++  {0x3E,0x41,0x51,0x21,0x5E}, // 0x51 'Q'
++  {0x7F,0x09,0x19,0x29,0x46}, // 0x52 'R'
++  {0x46,0x49,0x49,0x49,0x31}, // 0x53 'S'
++  {0x01,0x01,0x7F,0x01,0x01}, // 0x54 'T'
++  {0x3F,0x40,0x40,0x40,0x3F}, // 0x55 'U'
++  {0x1F,0x20,0x40,0x20,0x1F}, // 0x56 'V'
++  {0x7F,0x20,0x18,0x20,0x7F}, // 0x57 'W'
++  {0x63,0x14,0x08,0x14,0x63}, // 0x58 'X'
++  {0x07,0x08,0x70,0x08,0x07}, // 0x59 'Y'
++  {0x61,0x51,0x49,0x45,0x43}, // 0x5A 'Z'
++  {0x00,0x7F,0x41,0x41,0x00}, // 0x5B '['
++  {0x02,0x04,0x08,0x10,0x20}, // 0x5C '\'
++  {0x00,0x41,0x41,0x7F,0x00}, // 0x5D ']'
++  {0x04,0x02,0x01,0x02,0x04}, // 0x5E '^'
++  {0x40,0x40,0x40,0x40,0x40}, // 0x5F '_'
++  {0x00,0x01,0x02,0x04,0x00}, // 0x60 '`'
++  {0x20,0x54,0x54,0x54,0x78}, // 0x61 'a'
++  {0x7F,0x48,0x44,0x44,0x38}, // 0x62 'b'
++  {0x38,0x44,0x44,0x44,0x20}, // 0x63 'c'
++  {0x38,0x44,0x44,0x48,0x7F}, // 0x64 'd'
++  {0x38,0x54,0x54,0x54,0x18}, // 0x65 'e'
++  {0x08,0x7E,0x09,0x01,0x02}, // 0x66 'f'
++  {0x0C,0x52,0x52,0x52,0x3E}, // 0x67 'g'
++  {0x7F,0x08,0x04,0x04,0x78}, // 0x68 'h'
++  {0x00,0x44,0x7D,0x40,0x00}, // 0x69 'i'
++  {0x20,0x40,0x44,0x3D,0x00}, // 0x6A 'j'
++  {0x7F,0x10,0x28,0x44,0x00}, // 0x6B 'k'
++  {0x00,0x41,0x7F,0x40,0x00}, // 0x6C 'l'
++  {0x7C,0x04,0x18,0x04,0x78}, // 0x6D 'm'
++  {0x7C,0x08,0x04,0x04,0x78}, // 0x6E 'n'
++  {0x38,0x44,0x44,0x44,0x38}, // 0x6F 'o'
++  {0x7C,0x14,0x14,0x14,0x08}, // 0x70 'p'
++  {0x08,0x14,0x14,0x14,0x7C}, // 0x71 'q'
++  {0x7C,0x08,0x04,0x04,0x08}, // 0x72 'r'
++  {0x48,0x54,0x54,0x54,0x20}, // 0x73 's'
++  {0x04,0x3F,0x44,0x40,0x20}, // 0x74 't'
++  {0x3C,0x40,0x40,0x20,0x7C}, // 0x75 'u'
++  {0x1C,0x20,0x40,0x20,0x1C}, // 0x76 'v'
++  {0x3C,0x40,0x30,0x40,0x3C}, // 0x77 'w'
++  {0x44,0x28,0x10,0x28,0x44}, // 0x78 'x'
++  {0x0C,0x50,0x50,0x50,0x3C}, // 0x79 'y'
++  {0x44,0x64,0x54,0x4C,0x44}, // 0x7A 'z'
++  {0x00,0x08,0x36,0x41,0x00}, // 0x7B '{'
++  {0x00,0x00,0x7F,0x00,0x00}, // 0x7C '|'
++  {0x00,0x41,0x36,0x08,0x00}, // 0x7D '}'
++  {0x08,0x08,0x2A,0x1C,0x08}  // 0x7E '~'
++};
++
++static int sh1106_probe(struct i2c_client *client);
++static int sh1106_remove(struct i2c_client *client);
++void sh1106_init_sequence(sh1106_i2c_device_t *);
++static int sh1106_send_command(sh1106_i2c_device_t *, uint8_t);
++static int sh1106_send_data(sh1106_i2c_device_t *, char*, uint16_t);
++static int sh1106_set_cursor(sh1106_i2c_device_t *, uint8_t, uint8_t);
++void sh1106_display_print_string(sh1106_i2c_device_t *, const char *, size_t);
++void sh1106_display_fill_remaining(sh1106_i2c_device_t *, uint8_t);
++void sh1106_cleanup(sh1106_i2c_device_t *);
++
++static int sh1106_open(struct inode *, struct file *);
++static int sh1106_release(struct inode *, struct file *);
++static ssize_t sh1106_write(struct file *, const char __user *, size_t, loff_t *);
++
++static struct file_operations fops = {
++    .open = sh1106_open,
++    .release = sh1106_release,
++    .write = sh1106_write,
++};
++
++static int sh1106_probe(struct i2c_client *client) {
++    sh1106_i2c_device_t *sh1106;
++    char* test_str = "Hello, World!\n";
++
++    sh1106 = (sh1106_i2c_device_t *)kmalloc(sizeof(sh1106_i2c_device_t), GFP_KERNEL);
++    if (!sh1106) {
++        return -ENOMEM;
++    }
++
++    sh1106->kmalloc_ptr = (char *)kmalloc(KBUFFER_CAP, GFP_KERNEL);
++    if (sh1106->kmalloc_ptr == NULL) {
++        SH1106_PRINTK(KERN_ERR, "Cannot allocate kernel buffer.\n");
++        goto sh1106_fail;
++    }
++
++    cdev_init(&sh1106->my_cdev, &fops);
++    sh1106->dev_num = MKDEV(MAJOR(sh1106_module.major), sh1106_module.minor);
++    if (cdev_add(&sh1106->my_cdev, sh1106->dev_num, 1)) {
++        SH1106_PRINTK(KERN_ERR, "Failed to add device.\n");
++        goto cdev_add_fail;
++    }
++    sh1106_module.minor++;
++
++    if (device_create(sh1106_module.my_class, NULL, sh1106->dev_num, NULL, "%s%d", DEVICE_NAME, MINOR(sh1106->dev_num)) == NULL) {
++         SH1106_PRINTK(KERN_ERR, "Cannot create device.\n");
++         goto device_create_fail;
++    }
++
++    sh1106->kbuf_len = 0;
++    sh1106->client = client;
++    sh1106->current_line = 0;
++    sh1106->cursor_pos = 0;
++    sh1106->font_size = 5 + SH1106_FONT_SPACING;
++
++    i2c_set_clientdata(client, sh1106);
++    sh1106_init_sequence(sh1106);
++    sh1106_cleanup(sh1106);
++    sh1106_display_print_string(sh1106, test_str, sizeof(test_str) - 1);
++
++    SH1106_PRINTK(KERN_INFO, "I2C device is detected.\n");
++    return 0;
++
++device_create_fail:
++    cdev_del(&sh1106->my_cdev);
++cdev_add_fail:
++    kfree(sh1106->kmalloc_ptr);
++sh1106_fail:
++    kfree(sh1106);
++    return -1;
++}
++
++static int sh1106_remove(struct i2c_client *client) {
++    sh1106_i2c_device_t *sh1106 = i2c_get_clientdata(client);
++    if (!sh1106) {
++        return -EINVAL;
++    }
++
++    sh1106_module.minor--;
++    device_destroy(sh1106_module.my_class, sh1106->dev_num);
++    cdev_del(&sh1106->my_cdev);
++    kfree(sh1106->kmalloc_ptr);
++    kfree(sh1106);
++
++    SH1106_PRINTK(KERN_INFO, "I2C device is removed.\n");
++    return 0;
++}
++
++void sh1106_init_sequence(sh1106_i2c_device_t *sh1106) {
++    sh1106_send_command(sh1106, 0xAE); // Set display OFF		
++ 
++    sh1106_send_command(sh1106, 0xD5); // Set Display Clock Divide Ratio / OSC Frequency
++    sh1106_send_command(sh1106, 0x80); // Display Clock Divide Ratio / OSC Frequency 
++ 
++    sh1106_send_command(sh1106, SH1106_MULTIPLEX_RATIO);
++    sh1106_send_command(sh1106, 0x3F);
++
++    sh1106_send_command(sh1106, SH1106_DISPLAY_OFFSET);
++    sh1106_send_command(sh1106, 0x00);
++    
++    // sh1106_send_command(sh1106, 0x21); // Set column address
++    // sh1106_send_command(sh1106, 0x00); // Column start address
++    // sh1106_send_command(sh1106, 0x7F); // Column end address
++
++    sh1106_send_command(sh1106, SH1106_START_LINE | 0x0);
++ 
++    sh1106_send_command(sh1106, 0x8D); // Set Charge Pump
++    sh1106_send_command(sh1106, 0x14); // Charge Pump (0x10 External, 0x14 Internal DC/DC)
++ 
++    sh1106_send_command(sh1106, 0xA0 | 0x1); // Set Segment Re-Map
++    sh1106_send_command(sh1106, 0xC8); // Set Com Output Scan Direction
++ 
++    sh1106_send_command(sh1106, 0xDA); // Set COM Hardware Configuration
++    sh1106_send_command(sh1106, 0x12); // COM Hardware Configuration
++ 
++    sh1106_send_command(sh1106, SH1106_CONTRAST);
++    sh1106_send_command(sh1106, 0xCF);
++ 
++    sh1106_send_command(sh1106, 0xD9); // Set Pre-Charge Period
++    sh1106_send_command(sh1106, 0xF1); // Set Pre-Charge Period (0x22 External, 0xF1 Internal)
++ 
++    sh1106_send_command(sh1106, 0xDB); // Set VCOMH Deselect Level
++    sh1106_send_command(sh1106, 0x40); // VCOMH Deselect Level
++ 
++    sh1106_send_command(sh1106, 0xA4); // Set all pixels OFF
++    sh1106_send_command(sh1106, 0xA6); // Set display not inverted
++    sh1106_send_command(sh1106, 0xAF); // Set display On
++    msleep(100);
++}
++
++static int sh1106_send_command(sh1106_i2c_device_t *sh1106, uint8_t command) {
++    char buf[2];
++    buf[0] = SH1106_CTRL_CMD;
++    buf[1] = command;
++    return i2c_master_send(sh1106->client, buf, 2);
++}
++
++static int sh1106_send_data(sh1106_i2c_device_t *sh1106, char *data_buf, uint16_t buf_len) {
++    while (buf_len > 0) {
++        int chunk_len = min((int)buf_len, 16);
++        uint8_t buf[1 + 16];
++        int ret;
++
++        buf[0] = SH1106_CTRL_DATA;
++        memcpy(&buf[1], data_buf, chunk_len);
++
++        ret = i2c_master_send(sh1106->client, buf, chunk_len + 1);
++        if (ret != chunk_len + 1) {
++            return (ret < 0) ? ret : -EIO;
++        }
++
++        data_buf += chunk_len;
++        buf_len  -= chunk_len;
++    }
++
++    return 0;
++}
++
++static int sh1106_set_cursor(sh1106_i2c_device_t *sh1106, uint8_t line, uint8_t pos) {
++    if (line > SH1106_MAX_LINE || pos > SH1106_MAX_SEG) {
++        SH1106_PRINTK(KERN_ERR, "Invalid cursor position (line: %d, pos: %d)\n", line, pos);
++        return -EINVAL;
++    }
++    sh1106->current_line = line;
++    sh1106->cursor_pos = pos + SH1106_COLUMN_OFFSET;
++
++    sh1106_send_command(sh1106, SH1106_LINE_ADDR | sh1106->current_line);
++
++    sh1106_send_command(sh1106, SH1106_COLUMN_LOW_ADDR | (sh1106->cursor_pos & 0x0F));
++
++    sh1106_send_command(sh1106, SH1106_COLUMN_HIGH_ADDR | ((sh1106->cursor_pos >> 4) & 0x0F));
++
++    SH1106_PRINTK(KERN_INFO, "Cursor set to line %d, pos %d\n", sh1106->current_line, sh1106->cursor_pos);
++    
++    // msleep(1); // Small delay to ensure commands are processed
++    return 0;
++}
++
++void sh1106_display_print_string(sh1106_i2c_device_t *sh1106, const char *str, size_t len) {
++    char *str_temp;
++    char *kbuffer;
++    size_t i, j;
++    uint16_t kbuf_index = 0;
++
++    str_temp = (char *)kmalloc(len + 1, GFP_KERNEL);
++    if (!str_temp) {
++        SH1106_PRINTK(KERN_ERR, "Failed to allocate memory for string copy.\n");
++        return;
++    }
++    strncpy(str_temp, str, len);
++    str_temp[len] = '\0';
++
++    kbuffer = (char *)kmalloc(sh1106->font_size * len, GFP_KERNEL);
++    if (!kbuffer) {
++        SH1106_PRINTK(KERN_ERR, "Failed to allocate memory for string rendering.\n");
++        kfree(str_temp);
++        return;
++    }
++
++    for (i = 0; i < len; i++) {
++        if (str_temp[i] == '\n') {
++            sh1106_display_fill_remaining(sh1106, sh1106->cursor_pos);
++            sh1106->current_line++;
++            sh1106->cursor_pos = 0;
++            if (sh1106->current_line > SH1106_MAX_LINE) {
++                sh1106->current_line = 0;
++            }
++            sh1106_set_cursor(sh1106, sh1106->current_line, sh1106->cursor_pos);
++            continue;
++        } else if (str_temp[i] < 0x20 || str_temp[i] > 0x7E) {
++            str_temp[i] = '?'; // Replace unsupported characters with '?'
++        }
++
++        // Render character to kbuffer
++        for (j = 0; j < 5; j++) {
++            if (str_temp[i] == ' ' || font5x8[str_temp[i]-0x20][j] != 0x00) {
++                kbuffer[kbuf_index] = font5x8[str_temp[i]-0x20][j];
++                kbuf_index++;
++            }
++        }
++        for (j = 0; j < SH1106_FONT_SPACING; j++) {
++            kbuffer[kbuf_index++] = 0x00;
++        }
++
++        // Send data for this character
++        sh1106_send_data(sh1106, kbuffer, kbuf_index);
++        kbuf_index = 0;
++        sh1106->cursor_pos += sh1106->font_size;
++
++        // Prepare for next character
++        if (sh1106->cursor_pos + sh1106->font_size > SH1106_MAX_SEG) {
++            sh1106_display_fill_remaining(sh1106, sh1106->cursor_pos);
++            sh1106->current_line++;
++            sh1106->cursor_pos = 0;
++            if (sh1106->current_line > SH1106_MAX_LINE) {
++                sh1106->current_line = 0;
++            }
++        }
++        sh1106_set_cursor(sh1106, sh1106->current_line, sh1106->cursor_pos);
++    }
++
++    kfree(kbuffer);
++    kfree(str_temp);
++}
++
++void sh1106_display_fill_remaining(sh1106_i2c_device_t *sh1106, uint8_t pos) {
++    uint8_t remaining_bytes = SH1106_MAX_SEG - pos;
++    char *clear_buf;
++
++    clear_buf = (char *)kmalloc(remaining_bytes, GFP_KERNEL);
++    if (!clear_buf) {
++        SH1106_PRINTK(KERN_ERR, "Failed to allocate memory for clearing display.\n");
++        return;
++    }
++    
++    memset(clear_buf, 0x00, remaining_bytes);
++    SH1106_PRINTK(KERN_INFO, "Filling remaining %d bytes on line %d from position %d\n", remaining_bytes, sh1106->current_line, pos);
++
++    sh1106_send_data(sh1106, clear_buf, remaining_bytes);
++    kfree(clear_buf);
++}
++
++void sh1106_cleanup(sh1106_i2c_device_t *sh1106) {
++    int line;
++
++    for (line = 0; line <= SH1106_MAX_LINE; line++) {
++        sh1106_set_cursor(sh1106, line, 0);
++        sh1106_display_fill_remaining(sh1106, 0);
++    }
++    sh1106_set_cursor(sh1106, 0, 0);
++}
++
++static int sh1106_open(struct inode *inode, struct file *file) {
++    sh1106_i2c_device_t *sh1106 = container_of(inode->i_cdev, sh1106_i2c_device_t, my_cdev);
++    file->private_data = sh1106;
++
++    SH1106_PRINTK(KERN_INFO, "open\n");
++    return 0;
++}
++
++static int sh1106_release(struct inode *inode, struct file *file) {
++    SH1106_PRINTK(KERN_INFO, "release\n");
++    return 0;
++}
++
++static ssize_t sh1106_write(struct file *file, const char __user *user_buf, size_t size, loff_t *offset) {
++    sh1106_i2c_device_t *sh1106 = (sh1106_i2c_device_t *)file->private_data;
++
++    int bytes_write = size;
++    if (size > KBUFFER_CAP - 1) {
++        bytes_write = KBUFFER_CAP - 1;
++    }
++    if (copy_from_user(sh1106->kmalloc_ptr, user_buf, bytes_write)) {
++        return -1;
++    }
++    sh1106->kmalloc_ptr[bytes_write] = '\0';
++    sh1106_display_print_string(sh1106, sh1106->kmalloc_ptr, bytes_write);
++    SH1106_PRINTK(KERN_INFO, "received %d bytes from user\n", bytes_write);
++
++    return bytes_write;
++}
++
++static const struct of_device_id sh1106_of_match[] = {
++    { .compatible = "solomon,sh1106" },
++    { }
++};
++
++static struct i2c_driver sh1106_driver = {
++    .driver = {
++        .name = DEVICE_NAME,
++        .owner = THIS_MODULE,
++        .of_match_table = sh1106_of_match
++    },
++    .probe_new = sh1106_probe,
++    .remove = sh1106_remove,
++};
++
++static int __init sh1106_init(void)
++{   
++    if ((sh1106_module.my_class = class_create(THIS_MODULE, CLASS_NAME)) == NULL) {
++        SH1106_PRINTK(KERN_ERR, "Cannot create class.\n");
++        return -1;
++    }
++    if (alloc_chrdev_region(&sh1106_module.major, 0, MAX_MINOR, DEVICE_NAME) < 0) {
++        SH1106_PRINTK(KERN_ERR, "Cannot allocate kernel device.\n");
++        class_destroy(sh1106_module.my_class);
++        return -1;
++    }
++    sh1106_module.minor = 0;
++    
++    if (i2c_add_driver(&sh1106_driver)) {
++        SH1106_PRINTK(KERN_ERR, "i2c_add_driver failed. \n");
++        class_destroy(sh1106_module.my_class);
++        unregister_chrdev_region(sh1106_module.major, MAX_MINOR);
++        return -1;
++    }
++
++    SH1106_PRINTK(KERN_INFO, "Hello, Kernel World!\n");
++    return 0;
++}
++
++static void __exit sh1106_exit(void)
++{
++    i2c_del_driver(&sh1106_driver);
++
++    class_destroy(sh1106_module.my_class);
++    unregister_chrdev_region(sh1106_module.major, MAX_MINOR);
++    SH1106_PRINTK(KERN_INFO, "Module removed.\n");
++}
++
++module_init(sh1106_init);
++module_exit(sh1106_exit);
++
++// Module metadata
++MODULE_LICENSE("GPL");
++MODULE_AUTHOR("DataD");
++MODULE_DESCRIPTION("A simple sh1106 driver");
+diff --git a/drivers/ssd1306/ssd1306.c b/drivers/ssd1306/ssd1306.c
+index 867f68b01c61..0279165944d8 100644
+--- a/drivers/ssd1306/ssd1306.c
++++ b/drivers/ssd1306/ssd1306.c
+@@ -228,8 +228,6 @@ static int ssd1306_remove(struct i2c_client *client) {
+ }
+ 
+ void ssd1306_init_sequence(ssd1306_i2c_device_t *ssd1306) {
+-    //msleep(100);
+-
+     ssd1306_send_command(ssd1306, 0xAE); // Set display OFF		
+  
+     ssd1306_send_command(ssd1306, 0xD5); // Set Display Clock Divide Ratio / OSC Frequency
+@@ -264,6 +262,7 @@ void ssd1306_init_sequence(ssd1306_i2c_device_t *ssd1306) {
+     ssd1306_send_command(ssd1306, 0xA4); // Set all pixels OFF
+     ssd1306_send_command(ssd1306, 0xA6); // Set display not inverted
+     ssd1306_send_command(ssd1306, 0xAF); // Set display On
++    msleep(100);
+ }
+ 
+ static int ssd1306_send_command(ssd1306_i2c_device_t *ssd1306, uint8_t command) {
+@@ -302,10 +301,16 @@ static int ssd1306_set_cursor(ssd1306_i2c_device_t *ssd1306, uint8_t line, uint8
+     ssd1306->current_line = line;
+     ssd1306->cursor_pos = pos;
+ 
+-    ssd1306_send_command(ssd1306, 0xB0 | line); // Set page address
+-    ssd1306_send_command(ssd1306, 0x00 | (pos & 0x0F)); // Set lower column address
+-    ssd1306_send_command(ssd1306, 0x10 | ((pos >> 4) & 0x0F)); // Set higher column address
++    // Set page address
++    ssd1306_send_command(ssd1306, 0xB0 | line);
++    // Set lower column address
++    ssd1306_send_command(ssd1306, 0x00 | (pos & 0x0F));
++    // Set higher column address
++    ssd1306_send_command(ssd1306, 0x10 | ((pos >> 4) & 0x0F));
+ 
++    printk(KERN_INFO DEVICE_NAME ": Cursor set to line %d, pos %d\n", line, pos);
++    
++    msleep(1); // Small delay to ensure commands are processed
+     return 0;
+ }
+ 
+@@ -326,6 +331,7 @@ void ssd1306_display_print_string(ssd1306_i2c_device_t *ssd1306, const char *str
+     kbuffer = (char *)kmalloc(ssd1306->font_size * len, GFP_KERNEL);
+     if (!kbuffer) {
+         printk(KERN_ERR DEVICE_NAME ": Failed to allocate memory for string rendering.\n");
++        kfree(str_temp);
+         return;
+     }
+ 
+@@ -343,17 +349,17 @@ void ssd1306_display_print_string(ssd1306_i2c_device_t *ssd1306, const char *str
+             str_temp[i] = '?'; // Replace unsupported characters with '?'
+         }
+ 
+-        // Render characters to kbuffer
+-        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][0];
+-        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][1];
+-        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][2];
+-        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][3];
+-        kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][4];
++        // Render character to kbuffer
++        for (j = 0; j < 5; j++) {
++            kbuffer[kbuf_index++] = font5x8[str_temp[i] - 0x20][j];
++        }
++        // Add spacing between characters
+         for (j = 0; j < SSD1306_FONT_SPACING; j++) {
+-            kbuffer[kbuf_index++] = 0x00; // Add spacing between characters
++            kbuffer[kbuf_index++] = 0x00;
+         }
+ 
+-        ssd1306_send_data(ssd1306, kbuffer, ssd1306->font_size);
++        // Send data for this character
++        ssd1306_send_data(ssd1306, kbuffer, kbuf_index);
+         kbuf_index = 0;
+         ssd1306->cursor_pos += ssd1306->font_size;
+ 
+@@ -366,8 +372,12 @@ void ssd1306_display_print_string(ssd1306_i2c_device_t *ssd1306, const char *str
+                 ssd1306->current_line = 0;
+             }
+         }
++        // Set cursor BEFORE next character write
+         ssd1306_set_cursor(ssd1306, ssd1306->current_line, ssd1306->cursor_pos);
+     }
++
++    kfree(kbuffer);
++    kfree(str_temp);
+ }
+ 
+ void ssd1306_display_fill_remaining(ssd1306_i2c_device_t *ssd1306, uint8_t pos) {
+-- 
+2.34.1
+

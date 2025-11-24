@@ -1,7 +1,7 @@
 From 56287f1b132ab94f6512688e871e6f5a73207d1c Mon Sep 17 00:00:00 2001
 From: datcamap <vipronline24h@gmail.com>
 Date: Tue, 28 Oct 2025 15:00:19 +0700
-Subject: [PATCH 3/4] Fix nokia5110 driver
+Subject: [PATCH 3/5] Fix nokia5110 driver
 
 ---
  arch/arm/boot/dts/bcm2711-rpi-4-b.dts |  29 +-
