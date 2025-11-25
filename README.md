@@ -1,7 +1,7 @@
 ## My custom yocto layers for Raspberry Pi 4 Model B
 
-__meta-communication:__ add UART console support and Wifi configuration
-__meta-display:__ add support for ILI9225 TFT display with SPI0 and SH1106 monitor with I2C1
+__meta-communication:__ UART console support and Wifi configuration
+__meta-display:__ support ILI9225 TFT display on SPI0 bus and SH1106 monitor on I2C1 bus
 
 ### Adding each layer to your build by running 
 
@@ -16,8 +16,8 @@ MACHINE ?= "raspberrypi4"
 
 # Default Wi-Fi credentials consumed by the wifi-config recipe.
 # Replace with the SSID and passphrase for the access point you want the image to join.
-WIFI_SSID = "Nguyen Thanh Dat"
-WIFI_PSK = "0399433420"
+WIFI_SSID = ""
+WIFI_PSK = ""
 
 # Ensure Wi-Fi support is available to the image.
 DISTRO_FEATURES:append = " systemd wifi"

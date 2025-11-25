@@ -1,23 +1,89 @@
-From da6d019d2eb720b77ab3ed253a5a5e7d93df48c5 Mon Sep 17 00:00:00 2001
+From fd3bcacdc50c96db9ddd9837ea9d2614bb0636c2 Mon Sep 17 00:00:00 2001
 From: datcamap <vipronline24h@gmail.com>
-Date: Mon, 24 Nov 2025 11:13:38 +0700
-Subject: [PATCH 5/5] Add sh1106 driver
+Date: Tue, 25 Nov 2025 15:44:08 +0700
+Subject: [PATCH] Add-sh1106-driver
 
 ---
- arch/arm/boot/dts/bcm2711-rpi-4-b.dts |  24 +-
- arch/arm/configs/bcm2711_defconfig    |   1 +
- drivers/Kconfig                       |   2 +-
- drivers/Makefile                      |   1 +
- drivers/nokia5110/nokia5110.c         |   2 +-
- drivers/sh1106/Kconfig                |  10 +
- drivers/sh1106/Makefile               |   3 +
- drivers/sh1106/sh1106.c               | 513 ++++++++++++++++++++++++++
- drivers/ssd1306/ssd1306.c             |  36 +-
- 9 files changed, 575 insertions(+), 17 deletions(-)
+ arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts |  46 +-
+ arch/arm/boot/dts/bcm2711-rpi-4-b.dts      |  24 +-
+ arch/arm/configs/bcm2711_defconfig         |   1 +
+ drivers/Kconfig                            |   2 +-
+ drivers/Makefile                           |   1 +
+ drivers/nokia5110/nokia5110.c              |   2 +-
+ drivers/sh1106/Kconfig                     |  10 +
+ drivers/sh1106/Makefile                    |   3 +
+ drivers/sh1106/sh1106.c                    | 513 +++++++++++++++++++++
+ drivers/ssd1306/ssd1306.c                  |  36 +-
+ 10 files changed, 608 insertions(+), 30 deletions(-)
  create mode 100644 drivers/sh1106/Kconfig
  create mode 100644 drivers/sh1106/Makefile
  create mode 100644 drivers/sh1106/sh1106.c
 
+diff --git a/arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts b/arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts
+index c0d7bd733278..f9c955d02f62 100644
+--- a/arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts
++++ b/arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts
+@@ -188,20 +188,32 @@ &spi0 {
+ 	pinctrl-0 = <&spi0_pins &spi0_cs_pins>;
+ 	cs-gpios = <&gpio 8 1>, <&gpio 7 1>;
+ 
+-	spidev0: spidev@0{
+-		compatible = "spidev";
+-		reg = <0>;	/* CE0 */
+-		#address-cells = <1>;
+-		#size-cells = <0>;
+-		spi-max-frequency = <125000000>;
+-	};
++	// spidev0: spidev@0{
++	// 	compatible = "spidev";
++	// 	reg = <0>;	/* CE0 */
++	// 	#address-cells = <1>;
++	// 	#size-cells = <0>;
++	// 	spi-max-frequency = <125000000>;
++	// };
++
++	// spidev1: spidev@1{
++	// 	compatible = "spidev";
++	// 	reg = <1>;	/* CE1 */
++	// 	#address-cells = <1>;
++	// 	#size-cells = <0>;
++	// 	spi-max-frequency = <125000000>;
++	// };
++
++	status = "okay";
+ 
+-	spidev1: spidev@1{
+-		compatible = "spidev";
+-		reg = <1>;	/* CE1 */
+-		#address-cells = <1>;
+-		#size-cells = <0>;
+-		spi-max-frequency = <125000000>;
++	display@1{
++		compatible = "vot,v220hf01a-t", "ilitek,ili9225";
++		reg = <1>; /* CE1 */
++		spi-max-frequency = <12000000>;
++		rs-gpios = <&gpio 25 GPIO_ACTIVE_HIGH>;
++		reset-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;
++		rotation = <270>;
++		status = "okay";
+ 	};
+ };
+ 
+@@ -213,6 +225,14 @@ &i2c1 {
+ 	pinctrl-names = "default";
+ 	pinctrl-0 = <&i2c1_pins>;
+ 	clock-frequency = <100000>;
++
++	status = "okay";
++
++	sh1106@3c {
++		compatible = "solomon,sh1106";
++		reg = <0x3c>;
++		status = "okay";
++	};
+ };
+ 
+ &i2c2 {
 diff --git a/arch/arm/boot/dts/bcm2711-rpi-4-b.dts b/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
 index de183f4aed89..b1f26cd89a66 100644
 --- a/arch/arm/boot/dts/bcm2711-rpi-4-b.dts
