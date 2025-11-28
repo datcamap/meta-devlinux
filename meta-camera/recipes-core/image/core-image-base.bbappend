@@ -1,0 +1,1 @@
+# IMAGE_INSTALL:append = " imx708-overlay"

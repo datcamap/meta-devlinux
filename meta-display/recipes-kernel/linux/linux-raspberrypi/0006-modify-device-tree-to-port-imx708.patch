@@ -1,0 +1,67 @@
+From 2796b49d66193b53a33e2d2b209963ab57f14153 Mon Sep 17 00:00:00 2001
+From: datcamap <vipronline24h@gmail.com>
+Date: Fri, 28 Nov 2025 16:23:32 +0700
+Subject: [PATCH] modify device tree to port imx708
+
+---
+ arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts | 47 ++++++++++++++++++++++
+ 1 file changed, 47 insertions(+)
+
+diff --git a/arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts b/arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts
+index f9c955d02f62..100191bc8f76 100644
+--- a/arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts
++++ b/arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts
+@@ -284,3 +284,50 @@ __overrides__ {
+ 		act_led_trigger = <&act_led>,"linux,default-trigger";
+ 	};
+ };
++
++&i2c0if {
++	status = "okay";
++};
++
++&cam1_clk {
++	status = "okay";
++	clock-frequency = <24000000>;
++};
++
++&i2c0mux {
++	status = "okay";
++};
++
++&i2c_csi_dsi {
++	#address-cells = <1>;
++	#size-cells = <0>;
++	status = "okay";
++
++	#include "overlays/imx708.dtsi"
++};
++
++&cam_node {
++	lens-focus = <&vcm_node>;
++};
++
++&csi1 {
++	status = "okay";
++	brcm,media-controller;
++
++	port {
++		csi_ep: endpoint {
++			remote-endpoint = <&cam_endpoint>;
++			clock-lanes = <0>;
++			data-lanes = <1 2>;
++			clock-noncontinuous;
++		};
++	};
++};
++
++&cam_node {
++	status = "okay";
++};
++
++&vcm_node {
++	status = "okay";
++};
+-- 
+2.34.1
+
