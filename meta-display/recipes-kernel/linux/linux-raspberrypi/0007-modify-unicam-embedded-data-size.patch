@@ -1,0 +1,42 @@
+From d61871812631a59421d6989eb37b01ebbc762465 Mon Sep 17 00:00:00 2001
+From: datcamap <vipronline24h@gmail.com>
+Date: Thu, 4 Dec 2025 11:17:40 +0700
+Subject: [PATCH] modify unicam embedded data size
+
+---
+ arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts      | 6 ++++++
+ drivers/media/platform/bcm2835/bcm2835-unicam.c | 1 +
+ 2 files changed, 7 insertions(+)
+
+diff --git a/arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts b/arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts
+index 100191bc8f76..b30b076e70e8 100644
+--- a/arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts
++++ b/arch/arm/boot/dts/bcm2710-rpi-zero-2-w.dts
+@@ -328,6 +328,12 @@ &cam_node {
+ 	status = "okay";
+ };
+ 
++&cam_endpoint {
++	remote-endpoint = <&csi_ep>;
++	embedded-width = <28800>;
++	embedded-height = <1>;
++};
++
+ &vcm_node {
+ 	status = "okay";
+ };
+diff --git a/drivers/media/platform/bcm2835/bcm2835-unicam.c b/drivers/media/platform/bcm2835/bcm2835-unicam.c
+index 506a3b3837b0..3fe3026216a9 100644
+--- a/drivers/media/platform/bcm2835/bcm2835-unicam.c
++++ b/drivers/media/platform/bcm2835/bcm2835-unicam.c
+@@ -125,6 +125,7 @@ MODULE_PARM_DESC(media_controller, "Use media controller API");
+ #define MIN_HEIGHT		16
+ /* Default size of the embedded buffer */
+ #define UNICAM_EMBEDDED_SIZE	16384
++// #define UNICAM_EMBEDDED_SIZE (5 * 5760)
+ 
+ /*
+  * Size of the dummy buffer allocation.
+-- 
+2.34.1
+
