@@ -17,5 +17,3 @@ KERNEL_MODULE:append = " spi_bcm2835aux"
 
 KERNEL_MODULE_AUTOLOAD:append = " nokia5110"
 KERNEL_MODULE_AUTOLOAD:append = " sh1106"
-
-RPI_KERNEL_DEVICETREE_OVERLAYS:append = " overlays/imx708.dtbo"
