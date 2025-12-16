@@ -1,15 +1,14 @@
 #!/bin/bash
+WORKDIR=~/yocto/poky/build
 MACHINE="raspberrypi4"
 IMAGE_TYPE="rpi-test-image"
-IMAGE_PATH="$(ls ~/yocto/poky/build/tmp/deploy/images/${MACHINE}/${IMAGE_TYPE}*.rootfs.wic.bz2 | tail -n 1)"
+SD_CARD="/dev/sdb"
+
+IMAGE_PATH="$(ls ${WORKDIR}/tmp/deploy/images/${MACHINE}/${IMAGE_TYPE}*.rootfs.wic.bz2 | tail -n 1)"
 
 echo "Burning image from: 
 ${IMAGE_PATH}"
 
-# mkdir -p ~/yocto/poky/temporary
-# rm -f ~/yocto/poky/temporary/temp.wic
-
-# cp ${IMAGE_PATH} ~/yocto/poky/temporary/temp.wic.bz2
-sudo dd if=/dev/zero of=/dev/sdb bs=512 count=1
-bzcat ${IMAGE_PATH} | sudo dd of=/dev/sdb bs=4M status=progress
+sudo dd if=/dev/zero of=${SD_CARD} bs=512 count=1   # Errase sd card before writing
+bzcat ${IMAGE_PATH} | sudo dd of=${SD_CARD} bs=4M status=progress
 sync

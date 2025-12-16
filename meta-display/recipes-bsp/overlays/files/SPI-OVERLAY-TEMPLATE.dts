@@ -1,0 +1,116 @@
+/* 
+ * SPI Overlay Template for Raspberry Pi
+ * 
+ * This template shows the proper way to write SPI device overlays
+ * that avoid conflicts with default spidev devices.
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	compatible = "brcm,bcm2835";
+
+	/*
+	 * Fragment 0: Disable conflicting spidev devices
+	 * 
+	 * By default, spi0 has two generic spidev devices:
+	 *   - spidev@0 (reg = <0>, uses CE0 / GPIO8)
+	 *   - spidev@1 (reg = <1>, uses CE1 / GPIO7)
+	 * 
+	 * If your custom device uses CE0, disable spidev@0.
+	 * If your custom device uses CE1, disable spidev@1.
+	 * If using both, disable both.
+	 */
+	fragment@0 {
+		target = <&spidev0>;
+		__overlay__ {
+			status = "disabled";
+		};
+	};
+
+	/*
+	 * Fragment 1: Define GPIO pins for your device
+	 * 
+	 * Create a named pinctrl node that configures which GPIO pins
+	 * your device uses and how they should be configured.
+	 */
+	fragment@1 {
+		target = <&gpio>;
+		__overlay__ {
+			my_device_pins: my_device_pins {
+				/* GPIO pin numbers used by your device */
+				brcm,pins = <24 25>;
+				
+				/* Pin function: 0=input, 1=output, 4=alt0, etc */
+				brcm,function = <1>;
+				
+				/* Pull resistors: 0=none, 1=down, 2=up */
+				brcm,pull = <0>;
+			};
+		};
+	};
+
+	/*
+	 * Fragment 2: Configure SPI bus and add your device
+	 * 
+	 * The &spi0 reference targets the SPI0 bus defined in the main DT.
+	 * You add your device as a child node with proper SPI properties.
+	 */
+	fragment@2 {
+		target = <&spi0>;
+		__overlay__ {
+			status = "okay";
+			
+			/* Required for DTC to handle address cells properly */
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			/* Your SPI device node */
+			my_device: my_device@0 {
+				/* Compatible string(s) for the driver */
+				compatible = "vendor,device-name";
+				
+				/* 
+				 * SPI chip select (CS) line
+				 * reg = <0> uses CE0 (GPIO8)
+				 * reg = <1> uses CE1 (GPIO7)
+				 */
+				reg = <0>;
+				
+				/* Bind the GPIO pins defined above */
+				pinctrl-names = "default";
+				pinctrl-0 = <&my_device_pins>;
+				
+				/* Maximum SPI clock frequency in Hz */
+				spi-max-frequency = <10000000>;  /* 10 MHz */
+				
+				/* SPI mode flags (optional, depends on device) */
+				spi-cpol;  /* Clock polarity */
+				spi-cpha;  /* Clock phase */
+				
+				/* Device-specific GPIO controls */
+				reset-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;
+				dc-gpios = <&gpio 25 GPIO_ACTIVE_HIGH>;
+				
+				/* Other device-specific properties */
+				rotation = <270>;
+				debug = <0>;
+			};
+		};
+	};
+
+	/*
+	 * __overrides__: Runtime parameters
+	 * 
+	 * Allows users to pass parameters via dtoverlay command:
+	 *   dtoverlay=my-overlay,speed=5000000
+	 */
+	__overrides__ {
+		speed = <&my_device>, "spi-max-frequency:0";
+		reset_pin = <&my_device_pins>, "brcm,pins:0";
+		dc_pin = <&my_device_pins>, "brcm,pins:4";
+	};
+};

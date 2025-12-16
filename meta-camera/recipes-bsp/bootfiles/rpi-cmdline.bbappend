@@ -1,0 +1,1 @@
+CMDLINE_SERIAL:append = " cma=128M"
