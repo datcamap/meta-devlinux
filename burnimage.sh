@@ -1,6 +1,6 @@
 #!/bin/bash
 WORKDIR=~/yocto/poky/build
-MACHINE="raspberrypi4"
+MACHINE="raspberrypi0-2w"
 IMAGE_TYPE="rpi-test-image"
 SD_CARD="/dev/sdb"
 
