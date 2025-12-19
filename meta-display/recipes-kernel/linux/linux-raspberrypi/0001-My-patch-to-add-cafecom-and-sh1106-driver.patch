@@ -1,7 +1,7 @@
-From ba05c572c31acb0b9d3a1065a31771f77a27a365 Mon Sep 17 00:00:00 2001
+From 48d8a7f1e5f5e7e9bae93f664308fb90e8a5828b Mon Sep 17 00:00:00 2001
 From: datcamap <vipronline24h@gmail.com>
-Date: Wed, 17 Dec 2025 16:44:52 +0700
-Subject: [PATCH] SH1106 driver and Cafecom driver
+Date: Thu, 18 Dec 2025 15:26:02 +0700
+Subject: [PATCH] My patch to add cafecom and sh1106 driver
 
 ---
  .../dts/broadcom/bcm2710-rpi-zero-2-w.dts     |  68 +++
@@ -10,9 +10,9 @@ Subject: [PATCH] SH1106 driver and Cafecom driver
  drivers/Makefile                              |   1 +
  drivers/devlinux/Kconfig                      |  16 +
  drivers/devlinux/Makefile                     |   2 +
- drivers/devlinux/cafecom.c                    | 269 +++++++++
- drivers/devlinux/sh1106.c                     | 513 ++++++++++++++++++
- 8 files changed, 917 insertions(+)
+ drivers/devlinux/cafecom.c                    | 269 ++++++++++
+ drivers/devlinux/sh1106.c                     | 499 ++++++++++++++++++
+ 8 files changed, 903 insertions(+)
  create mode 100644 drivers/devlinux/Kconfig
  create mode 100644 drivers/devlinux/Makefile
  create mode 100644 drivers/devlinux/cafecom.c
@@ -170,7 +170,7 @@ index 1bec7819a837..502c53c945a2 100644
 +obj-y		+= devlinux/
 diff --git a/drivers/devlinux/Kconfig b/drivers/devlinux/Kconfig
 new file mode 100644
-index 000000000000..4c7f990030f3
+index 000000000000..5ec4abc68383
 --- /dev/null
 +++ b/drivers/devlinux/Kconfig
 @@ -0,0 +1,16 @@
@@ -180,14 +180,14 @@ index 000000000000..4c7f990030f3
 +#
 +
 +config GPIO_CAFECOM
-+    tristate "CafeCom GPIO driver"
-+    depends on GPIOLIB
++    bool "CafeCom GPIO driver"
++    default y
 +    help
 +      GPIO driver for CafeCom board
 +
 +config SH1106_I2C
-+    tristate "SH1106 OLED over I2C"
-+    depends on I2C
++    bool "SH1106 OLED over I2C"
++    default y
 +    help
 +      SH1106 OLED controller driver over I2C
 \ No newline at end of file
@@ -202,7 +202,7 @@ index 000000000000..6787481248cc
 \ No newline at end of file
 diff --git a/drivers/devlinux/cafecom.c b/drivers/devlinux/cafecom.c
 new file mode 100644
-index 000000000000..2d0a16479b91
+index 000000000000..9e043d9085c5
 --- /dev/null
 +++ b/drivers/devlinux/cafecom.c
 @@ -0,0 +1,269 @@
@@ -380,17 +380,17 @@ index 000000000000..2d0a16479b91
 +    /* Get GPIOs from DT. Use devm_gpiod_get_optional so missing lines are allowed. Flags:
 +     * DT already marks active-low where applicable; request logical OUT/IN behavior.
 +     */
-+    c->power = devm_gpiod_get_optional(dev, "power", GPIOD_OUT_LOW | GPIOD_ACTIVE_LOW);
++    c->power = devm_gpiod_get_optional(dev, "power", GPIOD_OUT_LOW);
 +    if (IS_ERR(c->power)) {
 +        dev_err(dev, "failed to get power gpio\n");
 +        return PTR_ERR(c->power);
 +    }
 +
-+    c->halfcup = devm_gpiod_get_optional(dev, "halfcup", GPIOD_OUT_LOW | GPIOD_ACTIVE_LOW);
++    c->halfcup = devm_gpiod_get_optional(dev, "halfcup", GPIOD_OUT_LOW);
 +    if (IS_ERR(c->halfcup))
 +        return PTR_ERR(c->halfcup);
 +
-+    c->fullcup = devm_gpiod_get_optional(dev, "fullcup", GPIOD_OUT_LOW | GPIOD_ACTIVE_LOW);
++    c->fullcup = devm_gpiod_get_optional(dev, "fullcup", GPIOD_OUT_LOW);
 +    if (IS_ERR(c->fullcup))
 +        return PTR_ERR(c->fullcup);
 +
@@ -414,7 +414,7 @@ index 000000000000..2d0a16479b91
 +        return ret;
 +    }
 +
-+    c->class = class_create(THIS_MODULE, DEVICE_NAME);
++    c->class = class_create(DEVICE_NAME);
 +    if (IS_ERR(c->class)) {
 +        dev_err(dev, "class_create failed\n");
 +        ret = PTR_ERR(c->class);
@@ -477,11 +477,11 @@ index 000000000000..2d0a16479b91
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/devlinux/sh1106.c b/drivers/devlinux/sh1106.c
 new file mode 100644
-index 000000000000..00065bf9af39
+index 000000000000..ae9cf033cb64
 --- /dev/null
 +++ b/drivers/devlinux/sh1106.c
-@@ -0,0 +1,513 @@
-+;#include <linux/module.h>
+@@ -0,0 +1,499 @@
++#include <linux/module.h>
 +#include <linux/kernel.h>
 +#include <linux/init.h>
 +#include <linux/fs.h>
@@ -638,135 +638,6 @@ index 000000000000..00065bf9af39
 +  {0x08,0x08,0x2A,0x1C,0x08}  // 0x7E '~'
 +};
 +
-+static int sh1106_probe(struct i2c_client *client);
-+static int sh1106_remove(struct i2c_client *client);
-+void sh1106_init_sequence(sh1106_i2c_device_t *);
-+static int sh1106_send_command(sh1106_i2c_device_t *, uint8_t);
-+static int sh1106_send_data(sh1106_i2c_device_t *, char*, uint16_t);
-+static int sh1106_set_cursor(sh1106_i2c_device_t *, uint8_t, uint8_t);
-+void sh1106_display_print_string(sh1106_i2c_device_t *, const char *, size_t);
-+void sh1106_display_fill_remaining(sh1106_i2c_device_t *, uint8_t);
-+void sh1106_cleanup(sh1106_i2c_device_t *);
-+
-+static int sh1106_open(struct inode *, struct file *);
-+static int sh1106_release(struct inode *, struct file *);
-+static ssize_t sh1106_write(struct file *, const char __user *, size_t, loff_t *);
-+
-+static struct file_operations fops = {
-+    .open = sh1106_open,
-+    .release = sh1106_release,
-+    .write = sh1106_write,
-+};
-+
-+static int sh1106_probe(struct i2c_client *client) {
-+    sh1106_i2c_device_t *sh1106;
-+    char* test_str = "Hello, World!\n";
-+
-+    sh1106 = (sh1106_i2c_device_t *)kmalloc(sizeof(sh1106_i2c_device_t), GFP_KERNEL);
-+    if (!sh1106) {
-+        return -ENOMEM;
-+    }
-+
-+    sh1106->kmalloc_ptr = (char *)kmalloc(KBUFFER_CAP, GFP_KERNEL);
-+    if (sh1106->kmalloc_ptr == NULL) {
-+        SH1106_PRINTK(KERN_ERR, "Cannot allocate kernel buffer.\n");
-+        goto sh1106_fail;
-+    }
-+
-+    cdev_init(&sh1106->my_cdev, &fops);
-+    sh1106->dev_num = MKDEV(MAJOR(sh1106_module.major), sh1106_module.minor);
-+    if (cdev_add(&sh1106->my_cdev, sh1106->dev_num, 1)) {
-+        SH1106_PRINTK(KERN_ERR, "Failed to add device.\n");
-+        goto cdev_add_fail;
-+    }
-+    sh1106_module.minor++;
-+
-+    if (device_create(sh1106_module.my_class, NULL, sh1106->dev_num, NULL, "%s%d", DEVICE_NAME, MINOR(sh1106->dev_num)) == NULL) {
-+         SH1106_PRINTK(KERN_ERR, "Cannot create device.\n");
-+         goto device_create_fail;
-+    }
-+
-+    sh1106->kbuf_len = 0;
-+    sh1106->client = client;
-+    sh1106->current_line = 0;
-+    sh1106->cursor_pos = 0;
-+    sh1106->font_size = 5 + SH1106_FONT_SPACING;
-+
-+    i2c_set_clientdata(client, sh1106);
-+    sh1106_init_sequence(sh1106);
-+    sh1106_cleanup(sh1106);
-+    sh1106_display_print_string(sh1106, test_str, sizeof(test_str) - 1);
-+
-+    SH1106_PRINTK(KERN_INFO, "I2C device is detected.\n");
-+    return 0;
-+
-+device_create_fail:
-+    cdev_del(&sh1106->my_cdev);
-+cdev_add_fail:
-+    kfree(sh1106->kmalloc_ptr);
-+sh1106_fail:
-+    kfree(sh1106);
-+    return -1;
-+}
-+
-+static int sh1106_remove(struct i2c_client *client) {
-+    sh1106_i2c_device_t *sh1106 = i2c_get_clientdata(client);
-+    if (!sh1106) {
-+        return -EINVAL;
-+    }
-+
-+    sh1106_module.minor--;
-+    device_destroy(sh1106_module.my_class, sh1106->dev_num);
-+    cdev_del(&sh1106->my_cdev);
-+    kfree(sh1106->kmalloc_ptr);
-+    kfree(sh1106);
-+
-+    SH1106_PRINTK(KERN_INFO, "I2C device is removed.\n");
-+    return 0;
-+}
-+
-+void sh1106_init_sequence(sh1106_i2c_device_t *sh1106) {
-+    sh1106_send_command(sh1106, 0xAE); // Set display OFF		
-+ 
-+    sh1106_send_command(sh1106, 0xD5); // Set Display Clock Divide Ratio / OSC Frequency
-+    sh1106_send_command(sh1106, 0x80); // Display Clock Divide Ratio / OSC Frequency 
-+ 
-+    sh1106_send_command(sh1106, SH1106_MULTIPLEX_RATIO);
-+    sh1106_send_command(sh1106, 0x3F);
-+
-+    sh1106_send_command(sh1106, SH1106_DISPLAY_OFFSET);
-+    sh1106_send_command(sh1106, 0x00);
-+    
-+    // sh1106_send_command(sh1106, 0x21); // Set column address
-+    // sh1106_send_command(sh1106, 0x00); // Column start address
-+    // sh1106_send_command(sh1106, 0x7F); // Column end address
-+
-+    sh1106_send_command(sh1106, SH1106_START_LINE | 0x0);
-+ 
-+    sh1106_send_command(sh1106, 0x8D); // Set Charge Pump
-+    sh1106_send_command(sh1106, 0x14); // Charge Pump (0x10 External, 0x14 Internal DC/DC)
-+ 
-+    sh1106_send_command(sh1106, 0xA0 | 0x1); // Set Segment Re-Map
-+    sh1106_send_command(sh1106, 0xC8); // Set Com Output Scan Direction
-+ 
-+    sh1106_send_command(sh1106, 0xDA); // Set COM Hardware Configuration
-+    sh1106_send_command(sh1106, 0x12); // COM Hardware Configuration
-+ 
-+    sh1106_send_command(sh1106, SH1106_CONTRAST);
-+    sh1106_send_command(sh1106, 0xCF);
-+ 
-+    sh1106_send_command(sh1106, 0xD9); // Set Pre-Charge Period
-+    sh1106_send_command(sh1106, 0xF1); // Set Pre-Charge Period (0x22 External, 0xF1 Internal)
-+ 
-+    sh1106_send_command(sh1106, 0xDB); // Set VCOMH Deselect Level
-+    sh1106_send_command(sh1106, 0x40); // VCOMH Deselect Level
-+ 
-+    sh1106_send_command(sh1106, 0xA4); // Set all pixels OFF
-+    sh1106_send_command(sh1106, 0xA6); // Set display not inverted
-+    sh1106_send_command(sh1106, 0xAF); // Set display On
-+    msleep(100);
-+}
-+
 +static int sh1106_send_command(sh1106_i2c_device_t *sh1106, uint8_t command) {
 +    char buf[2];
 +    buf[0] = SH1106_CTRL_CMD;
@@ -813,6 +684,65 @@ index 000000000000..00065bf9af39
 +    
 +    // msleep(1); // Small delay to ensure commands are processed
 +    return 0;
++}
++
++void sh1106_init_sequence(sh1106_i2c_device_t *sh1106) {
++    sh1106_send_command(sh1106, 0xAE); // Set display OFF		
++ 
++    sh1106_send_command(sh1106, 0xD5); // Set Display Clock Divide Ratio / OSC Frequency
++    sh1106_send_command(sh1106, 0x80); // Display Clock Divide Ratio / OSC Frequency 
++ 
++    sh1106_send_command(sh1106, SH1106_MULTIPLEX_RATIO);
++    sh1106_send_command(sh1106, 0x3F);
++
++    sh1106_send_command(sh1106, SH1106_DISPLAY_OFFSET);
++    sh1106_send_command(sh1106, 0x00);
++    
++    // sh1106_send_command(sh1106, 0x21); // Set column address
++    // sh1106_send_command(sh1106, 0x00); // Column start address
++    // sh1106_send_command(sh1106, 0x7F); // Column end address
++
++    sh1106_send_command(sh1106, SH1106_START_LINE | 0x0);
++ 
++    sh1106_send_command(sh1106, 0x8D); // Set Charge Pump
++    sh1106_send_command(sh1106, 0x14); // Charge Pump (0x10 External, 0x14 Internal DC/DC)
++ 
++    sh1106_send_command(sh1106, 0xA0 | 0x1); // Set Segment Re-Map
++    sh1106_send_command(sh1106, 0xC8); // Set Com Output Scan Direction
++ 
++    sh1106_send_command(sh1106, 0xDA); // Set COM Hardware Configuration
++    sh1106_send_command(sh1106, 0x12); // COM Hardware Configuration
++ 
++    sh1106_send_command(sh1106, SH1106_CONTRAST);
++    sh1106_send_command(sh1106, 0xCF);
++ 
++    sh1106_send_command(sh1106, 0xD9); // Set Pre-Charge Period
++    sh1106_send_command(sh1106, 0xF1); // Set Pre-Charge Period (0x22 External, 0xF1 Internal)
++ 
++    sh1106_send_command(sh1106, 0xDB); // Set VCOMH Deselect Level
++    sh1106_send_command(sh1106, 0x40); // VCOMH Deselect Level
++ 
++    sh1106_send_command(sh1106, 0xA4); // Set all pixels OFF
++    sh1106_send_command(sh1106, 0xA6); // Set display not inverted
++    sh1106_send_command(sh1106, 0xAF); // Set display On
++    msleep(100);
++}
++
++void sh1106_display_fill_remaining(sh1106_i2c_device_t *sh1106, uint8_t pos) {
++    uint8_t remaining_bytes = SH1106_MAX_SEG - pos;
++    char *clear_buf;
++
++    clear_buf = (char *)kmalloc(remaining_bytes, GFP_KERNEL);
++    if (!clear_buf) {
++        SH1106_PRINTK(KERN_ERR, "Failed to allocate memory for clearing display.\n");
++        return;
++    }
++    
++    memset(clear_buf, 0x00, remaining_bytes);
++    SH1106_PRINTK(KERN_INFO, "Filling remaining %d bytes on line %d from position %d\n", remaining_bytes, sh1106->current_line, pos);
++
++    sh1106_send_data(sh1106, clear_buf, remaining_bytes);
++    kfree(clear_buf);
 +}
 +
 +void sh1106_display_print_string(sh1106_i2c_device_t *sh1106, const char *str, size_t len) {
@@ -882,23 +812,6 @@ index 000000000000..00065bf9af39
 +    kfree(str_temp);
 +}
 +
-+void sh1106_display_fill_remaining(sh1106_i2c_device_t *sh1106, uint8_t pos) {
-+    uint8_t remaining_bytes = SH1106_MAX_SEG - pos;
-+    char *clear_buf;
-+
-+    clear_buf = (char *)kmalloc(remaining_bytes, GFP_KERNEL);
-+    if (!clear_buf) {
-+        SH1106_PRINTK(KERN_ERR, "Failed to allocate memory for clearing display.\n");
-+        return;
-+    }
-+    
-+    memset(clear_buf, 0x00, remaining_bytes);
-+    SH1106_PRINTK(KERN_INFO, "Filling remaining %d bytes on line %d from position %d\n", remaining_bytes, sh1106->current_line, pos);
-+
-+    sh1106_send_data(sh1106, clear_buf, remaining_bytes);
-+    kfree(clear_buf);
-+}
-+
 +void sh1106_cleanup(sh1106_i2c_device_t *sh1106) {
 +    int line;
 +
@@ -939,6 +852,79 @@ index 000000000000..00065bf9af39
 +    return bytes_write;
 +}
 +
++static struct file_operations fops = {
++    .open = sh1106_open,
++    .release = sh1106_release,
++    .write = sh1106_write,
++};
++
++static int sh1106_probe(struct i2c_client *client) {
++    sh1106_i2c_device_t *sh1106;
++    char* test_str = "Hello, World!\n";
++
++    sh1106 = (sh1106_i2c_device_t *)kmalloc(sizeof(sh1106_i2c_device_t), GFP_KERNEL);
++    if (!sh1106) {
++        return -ENOMEM;
++    }
++
++    sh1106->kmalloc_ptr = (char *)kmalloc(KBUFFER_CAP, GFP_KERNEL);
++    if (sh1106->kmalloc_ptr == NULL) {
++        SH1106_PRINTK(KERN_ERR, "Cannot allocate kernel buffer.\n");
++        goto sh1106_fail;
++    }
++
++    cdev_init(&sh1106->my_cdev, &fops);
++    sh1106->dev_num = MKDEV(MAJOR(sh1106_module.major), sh1106_module.minor);
++    if (cdev_add(&sh1106->my_cdev, sh1106->dev_num, 1)) {
++        SH1106_PRINTK(KERN_ERR, "Failed to add device.\n");
++        goto cdev_add_fail;
++    }
++    sh1106_module.minor++;
++
++    if (device_create(sh1106_module.my_class, NULL, sh1106->dev_num, NULL, "%s%d", DEVICE_NAME, MINOR(sh1106->dev_num)) == NULL) {
++         SH1106_PRINTK(KERN_ERR, "Cannot create device.\n");
++         goto device_create_fail;
++    }
++
++    sh1106->kbuf_len = 0;
++    sh1106->client = client;
++    sh1106->current_line = 0;
++    sh1106->cursor_pos = 0;
++    sh1106->font_size = 5 + SH1106_FONT_SPACING;
++
++    i2c_set_clientdata(client, sh1106);
++    sh1106_init_sequence(sh1106);
++    sh1106_cleanup(sh1106);
++    sh1106_display_print_string(sh1106, test_str, sizeof(test_str) - 1);
++
++    SH1106_PRINTK(KERN_INFO, "I2C device is detected.\n");
++    return 0;
++
++device_create_fail:
++    cdev_del(&sh1106->my_cdev);
++cdev_add_fail:
++    kfree(sh1106->kmalloc_ptr);
++sh1106_fail:
++    kfree(sh1106);
++    return -1;
++}
++
++static void sh1106_remove(struct i2c_client *client) {
++    sh1106_i2c_device_t *sh1106 = i2c_get_clientdata(client);
++    if (!sh1106) {
++        return;
++    }
++
++    sh1106_module.minor--;
++    device_destroy(sh1106_module.my_class, sh1106->dev_num);
++    cdev_del(&sh1106->my_cdev);
++    kfree(sh1106->kmalloc_ptr);
++    kfree(sh1106);
++
++    SH1106_PRINTK(KERN_INFO, "I2C device is removed.\n");
++    return;
++}
++
 +static const struct of_device_id sh1106_of_match[] = {
 +    { .compatible = "solomon,sh1106" },
 +    { }
@@ -950,13 +936,13 @@ index 000000000000..00065bf9af39
 +        .owner = THIS_MODULE,
 +        .of_match_table = sh1106_of_match
 +    },
-+    .probe_new = sh1106_probe,
++    .probe = sh1106_probe,
 +    .remove = sh1106_remove,
 +};
 +
 +static int __init sh1106_init(void)
 +{   
-+    if ((sh1106_module.my_class = class_create(THIS_MODULE, CLASS_NAME)) == NULL) {
++    if ((sh1106_module.my_class = class_create(CLASS_NAME)) == NULL) {
 +        SH1106_PRINTK(KERN_ERR, "Cannot create class.\n");
 +        return -1;
 +    }
